@@ -31,12 +31,20 @@ generic Pro license.
 
 `http://10.22.40.3:1984` — full upstream go2rtc UI. Useful before
 touching Nx:
-- Live in-browser preview of every stream (WebRTC / HLS / MJPEG players)
-- Codec / resolution / fps as detected from the upstream RTSP SDP
-- Per-stream "info" panel showing producers/consumers
-- Stream-test buttons for each downstream protocol
 
-Pilot order: validate upstream RTSP works in the dashboard *first*,
+| URL | What |
+|---|---|
+| `/` | Streams overview, live preview per stream |
+| `/editor.html` | YAML config editor (syntax-highlighted, Save & Restart) |
+| `/add.html` | Stream discovery / add wizard (ONVIF client side) |
+| `/stream.html?src=cam01` | Per-stream player + info panel |
+| `/log.html` | Live log tail |
+
+The YAML editor is the practical iteration loop during pilot debug —
+edit `go2rtc.yaml` in-browser, click Save & Restart, watch the log.
+No SSH-to-VM round-trip needed.
+
+Pilot order: validate upstream RTSP plays in the dashboard *first*,
 then move to ONVIF / Nx. Decouples "camera reachable?" from "ONVIF
 surface working?".
 
