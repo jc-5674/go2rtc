@@ -62,8 +62,9 @@ const (
 	MediaGetVideoSources                       = "GetVideoSources"
 	MediaGetVideoSourceConfiguration           = "GetVideoSourceConfiguration"
 	MediaGetVideoSourceConfigurations          = "GetVideoSourceConfigurations"
-	MediaGetVideoSourceConfigurationOptions    = "GetVideoSourceConfigurationOptions"
+	MediaGetVideoSourceConfigurationOptions      = "GetVideoSourceConfigurationOptions"
 	MediaGetCompatibleVideoEncoderConfigurations = "GetCompatibleVideoEncoderConfigurations"
+	MediaGetVideoEncoderConfigurationOptions     = "GetVideoEncoderConfigurationOptions"
 )
 
 // Package-level compiled regexes (avoids recompilation on every call).
@@ -395,6 +396,55 @@ func GetVideoSourceConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, co
         <tt:VideoSourceTokensAvailable>`, srctokenName, `</tt:VideoSourceTokensAvailable>
     </trt:Options>
 </trt:GetVideoSourceConfigurationOptionsResponse>`)
+	return e.Bytes()
+}
+
+// GetVideoEncoderConfigurationOptionsResponse advertises the bounds and
+// ranges supported by a video encoder configuration. Strict VMSes (Nx
+// Witness) call this to validate that the encoder config can be edited
+// at all — silently failing the device-add with "unknown_error" if it
+// returns "operation not supported". We pin Min=Max for resolution and
+// GOV (matching the encoder's actual config), and advertise a small
+// 1–30 fps + 64–8192 kbps range so Nx doesn't reject the bounds outright.
+func GetVideoEncoderConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, configToken string) []byte {
+	width, height := 1920, 1080
+	codec := "H264"
+	for _, profile := range OnvifProfiles {
+		for i, stream := range profile.Streams {
+			name, w, h, c, _, _, _ := ParseStream(stream)
+			enctokenName := name + "_enc_" + strconv.Itoa(i)
+			if enctokenName == configToken {
+				width, height, codec = w, h, c
+				break
+			}
+		}
+	}
+	resBlock := `<tt:ResolutionsAvailable><tt:Width>` + strconv.Itoa(width) + `</tt:Width><tt:Height>` + strconv.Itoa(height) + `</tt:Height></tt:ResolutionsAvailable>
+        <tt:GovLengthRange><tt:Min>1</tt:Min><tt:Max>120</tt:Max></tt:GovLengthRange>
+        <tt:FrameRateRange><tt:Min>1</tt:Min><tt:Max>30</tt:Max></tt:FrameRateRange>
+        <tt:EncodingIntervalRange><tt:Min>1</tt:Min><tt:Max>1</tt:Max></tt:EncodingIntervalRange>`
+	e := NewEnvelope()
+	e.Append(`<trt:GetVideoEncoderConfigurationOptionsResponse>
+    <trt:Options>
+        <tt:QualityRange><tt:Min>1</tt:Min><tt:Max>5</tt:Max></tt:QualityRange>
+`)
+	if codec == "H265" {
+		e.Append(`        <tt:Extension>
+            <tt:H265>
+                `, resBlock, `
+                <tt:H265ProfilesSupported>Main</tt:H265ProfilesSupported>
+            </tt:H265>
+        </tt:Extension>
+`)
+	} else {
+		e.Append(`        <tt:H264>
+            `, resBlock, `
+            <tt:H264ProfilesSupported>Main</tt:H264ProfilesSupported>
+        </tt:H264>
+`)
+	}
+	e.Append(`    </trt:Options>
+</trt:GetVideoEncoderConfigurationOptionsResponse>`)
 	return e.Bytes()
 }
 

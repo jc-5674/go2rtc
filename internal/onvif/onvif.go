@@ -286,6 +286,13 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 			token := onvif.FindTagValue(b, "ProfileToken")
 			b = onvif.GetCompatibleVideoEncoderConfigurationsResponse(profiles, token)
 
+		case onvif.MediaGetVideoEncoderConfigurationOptions:
+			// Nx Witness fails the device-add with "unknown_error" if this
+			// returns "operation not supported". Pinned ranges matching
+			// the actual encoder config.
+			token := onvif.FindTagValue(b, "ConfigurationToken")
+			b = onvif.GetVideoEncoderConfigurationOptionsResponse(profiles, token)
+
 		case onvif.MediaGetStreamUri:
 			host, _, err := net.SplitHostPort(r.Host)
 			if err != nil {
