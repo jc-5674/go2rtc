@@ -65,6 +65,7 @@ const (
 	MediaGetVideoSourceConfigurationOptions      = "GetVideoSourceConfigurationOptions"
 	MediaGetCompatibleVideoEncoderConfigurations = "GetCompatibleVideoEncoderConfigurations"
 	MediaGetVideoEncoderConfigurationOptions     = "GetVideoEncoderConfigurationOptions"
+	MediaGetAudioEncoderConfigurationOptions     = "GetAudioEncoderConfigurationOptions"
 )
 
 // Package-level compiled regexes (avoids recompilation on every call).
@@ -331,7 +332,19 @@ func appendProfile(e *Envelope, tag string, profile OnvifProfile) {
     </tt:VideoEncoderConfiguration>
 `)
 		if audio != "" {
-			e.Append(`    <tt:AudioEncoderConfiguration token="`, audiotokenName, `">
+			// AudioSourceConfiguration ties the Profile to its audio input.
+			// Without this, VMSes (notably Nx Witness) read the device as
+			// "no audio input" even when GetAudioSources lists the source —
+			// the linkage from Profile → AudioSource lives ONLY inside this
+			// element. AudioEncoderConfiguration below covers codec settings.
+			asrcTokenName := streamName + "_asrc_" + strconv.Itoa(i)
+			asrccfgTokenName := streamName + "_asrccfg_" + strconv.Itoa(i)
+			e.Append(`    <tt:AudioSourceConfiguration token="`, asrccfgTokenName, `">
+        <tt:Name>Audio`, streamName, `</tt:Name>
+        <tt:UseCount>1</tt:UseCount>
+        <tt:SourceToken>`, asrcTokenName, `</tt:SourceToken>
+    </tt:AudioSourceConfiguration>
+    <tt:AudioEncoderConfiguration token="`, audiotokenName, `">
         <tt:Name>Audio`, streamName, `</tt:Name>
         <tt:UseCount>2</tt:UseCount>
         <tt:Encoding>`, audio, `</tt:Encoding>
@@ -766,6 +779,58 @@ func GetAudioEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte 
 		}
 	}
 	e.Append(`</trt:GetAudioEncoderConfigurationsResponse>`)
+	return e.Bytes()
+}
+
+// GetAudioEncoderConfigurationOptionsResponse advertises the audio codec
+// options Nx Witness queries when the operator ticks "Enable audio". Without
+// this handler the bridge returns "operation not supported" (400), and Nx
+// rejects the audio capability with "audio is not configured properly" even
+// though the AudioSourceConfiguration is present.
+//
+// We advertise the codecs the YAML actually supports (G711 / G726 / AAC) at
+// stable bitrates and sample rates. The user is responsible for matching
+// audio= in the stream string to what the camera actually streams; this
+// handler exists to keep Nx's capability tree complete, not to transcode.
+func GetAudioEncoderConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, configToken string) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioEncoderConfigurationOptionsResponse>
+    <trt:Options>
+        <tt:Options>
+            <tt:Encoding>G711</tt:Encoding>
+            <tt:BitrateList>
+                <tt:Items>64</tt:Items>
+            </tt:BitrateList>
+            <tt:SampleRateList>
+                <tt:Items>8</tt:Items>
+                <tt:Items>16</tt:Items>
+            </tt:SampleRateList>
+        </tt:Options>
+        <tt:Options>
+            <tt:Encoding>AAC</tt:Encoding>
+            <tt:BitrateList>
+                <tt:Items>32</tt:Items>
+                <tt:Items>64</tt:Items>
+                <tt:Items>128</tt:Items>
+            </tt:BitrateList>
+            <tt:SampleRateList>
+                <tt:Items>16</tt:Items>
+                <tt:Items>32</tt:Items>
+                <tt:Items>44.1</tt:Items>
+                <tt:Items>48</tt:Items>
+            </tt:SampleRateList>
+        </tt:Options>
+        <tt:Options>
+            <tt:Encoding>G726</tt:Encoding>
+            <tt:BitrateList>
+                <tt:Items>32</tt:Items>
+            </tt:BitrateList>
+            <tt:SampleRateList>
+                <tt:Items>8</tt:Items>
+            </tt:SampleRateList>
+        </tt:Options>
+    </trt:Options>
+</trt:GetAudioEncoderConfigurationOptionsResponse>`)
 	return e.Bytes()
 }
 

@@ -190,6 +190,14 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 		case onvif.MediaGetAudioEncoderConfigurations:
 			b = onvif.GetAudioEncoderConfigurationsResponse(profiles)
 
+		case onvif.MediaGetAudioEncoderConfigurationOptions:
+			// Nx Witness calls this when the operator ticks "Enable audio".
+			// Returning "operation not supported" (the upstream default for
+			// unhandled SOAP) makes Nx reject audio with "audio is not
+			// configured properly" — same shape as the video options bug.
+			token := onvif.FindTagValue(b, "ConfigurationToken")
+			b = onvif.GetAudioEncoderConfigurationOptionsResponse(profiles, token)
+
 		case onvif.DeviceGetCapabilities:
 			// important for Hass: Media section
 			b = onvif.GetCapabilitiesResponse(r.Host)
