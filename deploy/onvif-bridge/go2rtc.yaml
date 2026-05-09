@@ -1,0 +1,56 @@
+# go2rtc ONVIF bridge — pilot config for cel-lan-lab-01
+#
+# Architecture (per-camera ONVIF device):
+#   - One go2rtc container, host networking
+#   - Each upstream camera gets one stream entry + one onvif.profile entry
+#   - Each profile listens on its own port; Nx Witness adds it as host:port
+#   - GetDeviceInformation per profile spoofs an Nx-recognised encoder
+#     identity so each virtual camera consumes an Encoder license, not Pro.
+#
+# Filling in the pilot:
+#   Replace the 5 <FILL ME> placeholders below with the pilot camera's
+#   RTSP URLs and the spoofed encoder identity (Manufacturer + Model
+#   strings that Nx currently recognises from the working Dahua NVR).
+#
+# Adding more cameras later:
+#   Copy the cam01 entry under streams + the cam01 entry under
+#   onvif.profiles. Increment the port (8082, 8083, …) and pick a unique
+#   serial number per camera (Nx dedupes on serial).
+
+api:
+  origin: "*"          # CORS for dashboard browsing
+  listen: ":1984"      # main UI / API port
+
+log:
+  level: info
+  api: trace           # ONVIF SOAP visible during pilot validation
+  onvif: trace
+  rtsp: warn
+
+streams:
+  # One stream entry per upstream camera. go2rtc opens ONE upstream RTSP
+  # session and fans out to N downstream consumers (Nx, EVIDION, etc.) —
+  # this is the function the Dahua NVR was performing badly.
+  cam01:
+    - "<FILL ME — pilot cam main-stream RTSP URL e.g. rtsp://user:pass@192.168.x.y:554/cam/realmonitor?channel=1&subtype=0>"
+    - "<FILL ME — pilot cam sub-stream RTSP URL e.g. rtsp://user:pass@192.168.x.y:554/cam/realmonitor?channel=1&subtype=1>"
+
+onvif:
+  profiles:
+    # Per-camera virtual ONVIF device. Each one Nx adds independently
+    # at host:port (e.g. 10.22.40.3:8081) — manual entry only, we do
+    # not rely on WS-Discovery.
+    - name: cam01
+      port: 8081
+      streams:
+        - "cam01#res=3840x2160#codec=h264#framerate=15#kbps=8000"   # main profile (adjust res/fps/bitrate to actual camera)
+        - "cam01#res=704x480#codec=h264#framerate=15#kbps=512"      # sub profile
+      device_info:
+        # These five strings drive Nx's license-class decision.
+        # Set them to whatever Nx Witness currently shows for the
+        # working Dahua NVR (Server admin → Camera → Manufacturer/Model).
+        manufacturer:     "<FILL ME — e.g. Dahua>"
+        model:            "<FILL ME — e.g. DH-NVR5208-8P-4KS2 (the encoder Nx currently licenses on)>"
+        firmware_version: "<FILL ME — e.g. 4.001.0000000.5>"
+        serial_number:    "PILOT-CAM-01"
+        hardware_id:      "1.00"
