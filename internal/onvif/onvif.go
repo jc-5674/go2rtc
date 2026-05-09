@@ -154,8 +154,7 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 		log.Trace().Msgf("[onvif] server request %s %s:\n%s", r.Method, r.RequestURI, b)
 
 		switch operation {
-		case onvif.DeviceGetNetworkInterfaces, // important for Hass
-			onvif.DeviceGetSystemDateAndTime, // important for Hass
+		case onvif.DeviceGetSystemDateAndTime, // important for Hass
 			onvif.DeviceGetDiscoveryMode,
 			onvif.DeviceGetDNS,
 			onvif.DeviceGetHostname,
@@ -163,6 +162,18 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 			onvif.DeviceGetNetworkProtocols,
 			onvif.DeviceGetNTP:
 			b = onvif.StaticResponse(operation)
+
+		case onvif.DeviceGetNetworkInterfaces:
+			// Nx Witness keys cameras by MAC address from this response
+			// and aborts the add flow if it's empty — synthesise a
+			// realistic NetworkInterfaces entry with stable per-profile
+			// MAC (derived from profile name unless device_info.mac
+			// overrides) and the host IP from the request.
+			host, _, splitErr := net.SplitHostPort(r.Host)
+			if splitErr != nil {
+				host = r.Host
+			}
+			b = onvif.GetNetworkInterfacesResponse(profiles, host)
 
 		case onvif.DeviceGetScopes:
 			b = onvif.GetScopesResponse(deviceName)

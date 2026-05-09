@@ -2,6 +2,8 @@ package onvif
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"regexp"
 	"strconv"
 	"strings"
@@ -25,6 +27,7 @@ type DeviceInfo struct {
 	FirmwareVersion string `yaml:"firmware_version"`
 	SerialNumber    string `yaml:"serial_number"`
 	HardwareId      string `yaml:"hardware_id"`
+	MAC             string `yaml:"mac"` // optional override; default derives stable MAC from profile name
 }
 
 const ServiceGetServiceCapabilities = "GetServiceCapabilities"
@@ -503,6 +506,56 @@ func GetAudioEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte 
 		}
 	}
 	e.Append(`</trt:GetAudioEncoderConfigurationsResponse>`)
+	return e.Bytes()
+}
+
+// DeriveStableMAC returns a deterministic locally-administered MAC address
+// (prefix 02:xx:xx:xx:xx:xx — the U/L bit signals "this isn't a real
+// hardware address") derived from the profile name. Stable across container
+// restarts so VMSes that key cameras by MAC don't lose track of the device.
+func DeriveStableMAC(profileName string) string {
+	h := sha256.Sum256([]byte(profileName))
+	return fmt.Sprintf("02:%02X:%02X:%02X:%02X:%02X", h[0], h[1], h[2], h[3], h[4])
+}
+
+// GetNetworkInterfacesResponse synthesises a NetworkInterfaces entry with a
+// stable MAC and the host IP from the request. VMSes like Nx Witness key
+// devices by MAC and abort the add flow if this returns empty — which is
+// what upstream go2rtc and Nick's fork did before this patch (static stub).
+//
+// Per-profile mac override (in device_info) takes priority over the derived
+// MAC, so operators can pin specific MAC addresses if needed.
+func GetNetworkInterfacesResponse(profiles []OnvifProfile, hostIP string) []byte {
+	e := NewEnvelope()
+	e.Append(`<tds:GetNetworkInterfacesResponse>
+`)
+	if len(profiles) >= 1 {
+		profile := profiles[0]
+		mac := profile.DeviceInfo.MAC
+		if mac == "" {
+			mac = DeriveStableMAC(profile.Name)
+		}
+		e.Append(`    <tds:NetworkInterfaces token="eth0">
+        <tt:Enabled>true</tt:Enabled>
+        <tt:Info>
+            <tt:Name>eth0</tt:Name>
+            <tt:HwAddress>`, mac, `</tt:HwAddress>
+            <tt:MTU>1500</tt:MTU>
+        </tt:Info>
+        <tt:IPv4>
+            <tt:Enabled>true</tt:Enabled>
+            <tt:Config>
+                <tt:Manual>
+                    <tt:Address>`, hostIP, `</tt:Address>
+                    <tt:PrefixLength>24</tt:PrefixLength>
+                </tt:Manual>
+                <tt:DHCP>false</tt:DHCP>
+            </tt:Config>
+        </tt:IPv4>
+    </tds:NetworkInterfaces>
+`)
+	}
+	e.Append(`</tds:GetNetworkInterfacesResponse>`)
 	return e.Bytes()
 }
 
