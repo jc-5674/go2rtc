@@ -27,13 +27,29 @@ generic Pro license.
    actual RTSP URLs + the spoofed encoder identity strings.
 6. Deploy.
 
+## go2rtc dashboard
+
+`http://10.22.40.3:1984` — full upstream go2rtc UI. Useful before
+touching Nx:
+- Live in-browser preview of every stream (WebRTC / HLS / MJPEG players)
+- Codec / resolution / fps as detected from the upstream RTSP SDP
+- Per-stream "info" panel showing producers/consumers
+- Stream-test buttons for each downstream protocol
+
+Pilot order: validate upstream RTSP works in the dashboard *first*,
+then move to ONVIF / Nx. Decouples "camera reachable?" from "ONVIF
+surface working?".
+
 ## Validation
 
 ```sh
-# 1. Container up
-docker logs onvif-bridge 2>&1 | grep -E "ONVIF|listen"
+# 1. Container up + ONVIF + WS-Discovery + dashboard listening
+docker logs onvif-bridge 2>&1 | grep -E "ONVIF|listen|api"
 
-# 2. ONVIF device responds
+# 2. Dashboard preview (browser)
+#    http://10.22.40.3:1984 — click cam01, hit "stream" → confirm video plays
+
+# 3. ONVIF device responds with spoofed identity
 curl -s -X POST http://10.22.40.3:8081/onvif/device_service \
   -H 'Content-Type: application/soap+xml' \
   --data '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><s:Body><tds:GetDeviceInformation/></s:Body></s:Envelope>'
@@ -41,16 +57,16 @@ curl -s -X POST http://10.22.40.3:8081/onvif/device_service \
 # spoofed encoder identity from go2rtc.yaml.
 ```
 
-3. In Nx Witness Server: Add Camera → Generic ONVIF → `10.22.40.3:8081`,
+4. In Nx Witness Server: Add Camera → Generic ONVIF → `10.22.40.3:8081`,
    credentials `admin`/anything. Confirm Nx shows the spoofed
    Manufacturer + Model and allocates an **Encoder** license slot
    (not Professional).
 
-4. Tail `docker logs -f onvif-bridge` while previewing in Nx — confirm
+5. Tail `docker logs -f onvif-bridge` while previewing in Nx — confirm
    one upstream RTSP session is opened to the camera regardless of how
    many Nx clients view simultaneously (this is the fan-out win).
 
-5. Leave running 24–48h; observe whether Dahua-era stream drops are gone.
+6. Leave running 24–48h; observe whether Dahua-era stream drops are gone.
 
 ## Adding more cameras
 
