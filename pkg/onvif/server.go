@@ -349,7 +349,7 @@ func appendProfile(e *Envelope, tag string, profile OnvifProfile) {
         <tt:UseCount>2</tt:UseCount>
         <tt:Encoding>`, audio, `</tt:Encoding>
         <tt:Bitrate>64</tt:Bitrate>
-        <tt:SampleRate>16000</tt:SampleRate>
+        <tt:SampleRate>8</tt:SampleRate>
     </tt:AudioEncoderConfiguration>
 `)
 		} else if firstaudiotokenName != "" {
@@ -763,7 +763,7 @@ func GetAudioEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte 
     <tt:UseCount>1</tt:UseCount>
     <tt:Encoding>`, audio, `</tt:Encoding>
     <tt:Bitrate>64</tt:Bitrate>
-    <tt:SampleRate>16000</tt:SampleRate>
+    <tt:SampleRate>8</tt:SampleRate>
     <tt:Multicast>
         <tt:Address>
             <tt:Type>IPv4</tt:Type>
@@ -784,14 +784,18 @@ func GetAudioEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte 
 
 // GetAudioEncoderConfigurationOptionsResponse advertises the audio codec
 // options Nx Witness queries when the operator ticks "Enable audio". Without
-// this handler the bridge returns "operation not supported" (400), and Nx
-// rejects the audio capability with "audio is not configured properly" even
-// though the AudioSourceConfiguration is present.
+// a handler the dispatcher returns "operation not supported" (HTTP 400), and
+// Nx silently rejects audio with "audio is not configured properly".
 //
-// We advertise the codecs the YAML actually supports (G711 / G726 / AAC) at
-// stable bitrates and sample rates. The user is responsible for matching
-// audio= in the stream string to what the camera actually streams; this
-// handler exists to keep Nx's capability tree complete, not to transcode.
+// Strict gSOAP-based clients (Nx) reject malformed options with type errors
+// (status code 4 / SOAP_TYPE) — the schema's SampleRateList is tt:IntList
+// (integers only), so the response MUST contain integer-only sample rates.
+// The configured SampleRate in GetAudioEncoderConfigurations also has to
+// appear in this allowed list, or Nx flags a value mismatch.
+//
+// Currently advertises G711 only (the only codec the existing handlers
+// configure) at 8 kHz, matching the standard G.711µ/A profile. Add more
+// codec entries here only after also adding them to GetAudioEncoderConfigs.
 func GetAudioEncoderConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, configToken string) []byte {
 	e := NewEnvelope()
 	e.Append(`<trt:GetAudioEncoderConfigurationOptionsResponse>
@@ -800,30 +804,6 @@ func GetAudioEncoderConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, c
             <tt:Encoding>G711</tt:Encoding>
             <tt:BitrateList>
                 <tt:Items>64</tt:Items>
-            </tt:BitrateList>
-            <tt:SampleRateList>
-                <tt:Items>8</tt:Items>
-                <tt:Items>16</tt:Items>
-            </tt:SampleRateList>
-        </tt:Options>
-        <tt:Options>
-            <tt:Encoding>AAC</tt:Encoding>
-            <tt:BitrateList>
-                <tt:Items>32</tt:Items>
-                <tt:Items>64</tt:Items>
-                <tt:Items>128</tt:Items>
-            </tt:BitrateList>
-            <tt:SampleRateList>
-                <tt:Items>16</tt:Items>
-                <tt:Items>32</tt:Items>
-                <tt:Items>44.1</tt:Items>
-                <tt:Items>48</tt:Items>
-            </tt:SampleRateList>
-        </tt:Options>
-        <tt:Options>
-            <tt:Encoding>G726</tt:Encoding>
-            <tt:BitrateList>
-                <tt:Items>32</tt:Items>
             </tt:BitrateList>
             <tt:SampleRateList>
                 <tt:Items>8</tt:Items>
