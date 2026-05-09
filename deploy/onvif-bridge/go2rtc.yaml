@@ -36,10 +36,16 @@ log:
 streams:
   # One stream entry per upstream camera. go2rtc opens ONE upstream RTSP
   # session and fans out to N downstream consumers (Nx, EVIDION, etc.) —
-  # this replaces the Dahua's restream consolidation function.
+  # this replaces the Dahua NVR's restream consolidation function.
+  #
+  # IMPORTANT: use the CAMERA's own IP, NOT the NVR's IP. Nx today shows
+  # rtsp://10.22.50.2:554/.../channel=1 — that's the NVR brokering. The
+  # whole point of this bridge is to bypass that. Find the real camera
+  # IP via the NVR web UI's camera-list page, or scan VLAN 50 with
+  # `nmap -p 554 10.22.50.0/24` from the runner LXC.
   cam01:
-    - "<FILL ME — pilot cam main-stream RTSP URL e.g. rtsp://user:pass@192.168.x.y:554/cam/realmonitor?channel=1&subtype=0>"
-    - "<FILL ME — pilot cam sub-stream RTSP URL e.g. rtsp://user:pass@192.168.x.y:554/cam/realmonitor?channel=1&subtype=1>"
+    - "<FILL ME — direct CAMERA main RTSP, e.g. rtsp://admin:PASS@10.22.50.X:554/cam/realmonitor?channel=1&subtype=0>"
+    - "<FILL ME — direct CAMERA sub RTSP, e.g. rtsp://admin:PASS@10.22.50.X:554/cam/realmonitor?channel=1&subtype=1>"
 
 onvif:
   profiles:
@@ -60,11 +66,13 @@ onvif:
 
       device_info:
         # These five strings drive Nx's license-class decision.
-        # Set them to whatever Nx Witness currently shows for the
-        # working Dahua NVR (Server admin → Camera → Manufacturer/Model).
-        manufacturer:     "<FILL ME — e.g. Dahua>"
-        model:            "<FILL ME — e.g. DH-NVR5208-8P-4KS2 (the encoder Nx currently licenses on)>"
-        firmware_version: "<FILL ME — e.g. 4.001.0000000.5>"
+        # Pre-filled from the working Dahua NVR (Nx camera info panel,
+        # 2026-05-09). Each virtual camera should advertise the SAME
+        # Manufacturer + Model so Nx assigns Encoder licenses; only
+        # serial_number must be unique per virtual device.
+        manufacturer:     "Dahua"
+        model:            "DHI-NVR5232-16P-4KS2E"
+        firmware_version: "4.002.0000000.8.R"
         serial_number:    "PILOT-CAM-01"     # MUST be unique per virtual device — Nx dedupes on serial
         hardware_id:      "1.00"
 
