@@ -369,10 +369,15 @@ func GetVideoSourcesResponse(OnvifProfiles []OnvifProfile) []byte {
 		for i, stream := range profile.Streams {
 			name, width, height, _, framerate, _, _ := ParseStream(stream)
 			srctokenName := name + "_src_" + strconv.Itoa(i)
-			e.Append(`<tt:VideoSources token="`, srctokenName, `">
+			// Element MUST be in trt: namespace (matches the response
+			// wrapper) — Nx Witness and other strict ONVIF parsers
+			// filter children by namespace and silently skip
+			// wrong-namespace VideoSources elements (resulting in a
+			// "Range size = 0" channel-count error).
+			e.Append(`<trt:VideoSources token="`, srctokenName, `">
     <tt:Framerate>`, strconv.Itoa(framerate), `</tt:Framerate>
     <tt:Resolution><tt:Width>`, strconv.Itoa(width), `</tt:Width><tt:Height>`, strconv.Itoa(height), `</tt:Height></tt:Resolution>
-</tt:VideoSources>
+</trt:VideoSources>
 `)
 		}
 	}
@@ -434,9 +439,9 @@ func GetAudioSourcesResponse(OnvifProfiles []OnvifProfile) []byte {
 				continue
 			}
 			asrcTokenName := name + "_asrc_" + strconv.Itoa(i)
-			e.Append(`<tt:AudioSources token="`, asrcTokenName, `">
+			e.Append(`<trt:AudioSources token="`, asrcTokenName, `">
     <tt:Channels>1</tt:Channels>
-</tt:AudioSources>
+</trt:AudioSources>
 `)
 		}
 	}
