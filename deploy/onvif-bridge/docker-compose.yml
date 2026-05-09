@@ -1,0 +1,13 @@
+services:
+  onvif-bridge:
+    container_name: onvif-bridge
+    build:
+      context: https://github.com/jc-5674/go2rtc.git#feat/configurable-deviceinfo
+      dockerfile: docker/Dockerfile
+    image: jc-5674/onvif-bridge:patched
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./go2rtc.yaml:/config/go2rtc.yaml:ro
+    environment:
+      - TZ=Europe/London
