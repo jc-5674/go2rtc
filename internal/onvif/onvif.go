@@ -153,6 +153,38 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 
 		log.Trace().Msgf("[onvif] server request %s %s:\n%s", r.Method, r.RequestURI, b)
 
+		// WS-Security auth on incoming requests. Required when ANY profile
+		// served by this handler sets a non-empty Password (per-profile
+		// credentials in YAML). The request is accepted if it matches at
+		// least one such profile's credentials — this matters for the
+		// shared :1984 handler that holds all profiles; per-camera handlers
+		// have a single profile so any-vs-all is moot there.
+		//
+		// GetSystemDateAndTime is exempt — clients must call it before they
+		// can compute a PasswordDigest (Nx queries device time first to
+		// align Created within the device's clock window).
+		if operation != onvif.DeviceGetSystemDateAndTime {
+			authRequired := false
+			authMatched := false
+			for _, p := range profiles {
+				if p.Password == "" {
+					continue
+				}
+				authRequired = true
+				if onvif.ValidateUsernameToken(b, p.Username, p.Password) {
+					authMatched = true
+					break
+				}
+			}
+			if authRequired && !authMatched {
+				log.Debug().Str("op", operation).Msg("[onvif] auth failed")
+				w.Header().Set("Content-Type", "application/soap+xml; charset=utf-8")
+				w.WriteHeader(http.StatusUnauthorized)
+				_, _ = w.Write(onvif.AuthFaultEnvelope())
+				return
+			}
+		}
+
 		switch operation {
 		case onvif.DeviceGetSystemDateAndTime, // important for Hass
 			onvif.DeviceGetDiscoveryMode,

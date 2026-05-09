@@ -16,6 +16,8 @@ type OnvifProfile struct {
 	IP         string     `yaml:"ip"`          // optional: bind camera server and WS-Discovery to this IP (for multi-camera setups where each camera needs its own IP)
 	Streams    []string   `yaml:"streams"`
 	DeviceInfo DeviceInfo `yaml:"device_info"` // optional: per-profile overrides for GetDeviceInformation response (drives VMS driver/license matching)
+	Username   string     `yaml:"username"`    // optional: required username for incoming WS-Security auth (empty disables auth — backward compat)
+	Password   string     `yaml:"password"`    // optional: required password for incoming WS-Security auth; PasswordDigest validated per oasis-200401-wss-username-token-profile-1.0
 }
 
 // DeviceInfo overrides the strings returned in the ONVIF GetDeviceInformation
