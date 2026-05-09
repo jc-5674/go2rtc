@@ -419,31 +419,51 @@ func GetVideoEncoderConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, c
 			}
 		}
 	}
-	resBlock := `<tt:ResolutionsAvailable><tt:Width>` + strconv.Itoa(width) + `</tt:Width><tt:Height>` + strconv.Itoa(height) + `</tt:Height></tt:ResolutionsAvailable>
-        <tt:GovLengthRange><tt:Min>1</tt:Min><tt:Max>120</tt:Max></tt:GovLengthRange>
-        <tt:FrameRateRange><tt:Min>1</tt:Min><tt:Max>30</tt:Max></tt:FrameRateRange>
-        <tt:EncodingIntervalRange><tt:Min>1</tt:Min><tt:Max>1</tt:Max></tt:EncodingIntervalRange>`
+	wStr := strconv.Itoa(width)
+	hStr := strconv.Itoa(height)
 	e := NewEnvelope()
+	// Always emit the top-level H264 block — Nx Witness's Dahua driver
+	// (and many other strict ONVIF parsers) reads from the H264 element
+	// regardless of the actual encoder codec, and reports "no video
+	// options" if it's missing. The Extension/H265 block adds H.265
+	// support when applicable.
+	// BitrateRange goes inside Extension/H264 per ONVIF Profile T spec.
 	e.Append(`<trt:GetVideoEncoderConfigurationOptionsResponse>
     <trt:Options>
         <tt:QualityRange><tt:Min>1</tt:Min><tt:Max>5</tt:Max></tt:QualityRange>
+        <tt:H264>
+            <tt:ResolutionsAvailable><tt:Width>`, wStr, `</tt:Width><tt:Height>`, hStr, `</tt:Height></tt:ResolutionsAvailable>
+            <tt:GovLengthRange><tt:Min>1</tt:Min><tt:Max>120</tt:Max></tt:GovLengthRange>
+            <tt:FrameRateRange><tt:Min>1</tt:Min><tt:Max>30</tt:Max></tt:FrameRateRange>
+            <tt:EncodingIntervalRange><tt:Min>1</tt:Min><tt:Max>1</tt:Max></tt:EncodingIntervalRange>
+            <tt:H264ProfilesSupported>Baseline</tt:H264ProfilesSupported>
+            <tt:H264ProfilesSupported>Main</tt:H264ProfilesSupported>
+            <tt:H264ProfilesSupported>High</tt:H264ProfilesSupported>
+        </tt:H264>
+        <tt:Extension>
+            <tt:H264>
+                <tt:BitrateRange>
+                    <tt:Min>64</tt:Min>
+                    <tt:Max>16384</tt:Max>
+                </tt:BitrateRange>
+            </tt:H264>
 `)
 	if codec == "H265" {
-		e.Append(`        <tt:Extension>
-            <tt:H265>
-                `, resBlock, `
+		e.Append(`            <tt:H265>
+                <tt:ResolutionsAvailable><tt:Width>`, wStr, `</tt:Width><tt:Height>`, hStr, `</tt:Height></tt:ResolutionsAvailable>
+                <tt:GovLengthRange><tt:Min>1</tt:Min><tt:Max>120</tt:Max></tt:GovLengthRange>
+                <tt:FrameRateRange><tt:Min>1</tt:Min><tt:Max>30</tt:Max></tt:FrameRateRange>
+                <tt:EncodingIntervalRange><tt:Min>1</tt:Min><tt:Max>1</tt:Max></tt:EncodingIntervalRange>
                 <tt:H265ProfilesSupported>Main</tt:H265ProfilesSupported>
+                <tt:BitrateRange>
+                    <tt:Min>64</tt:Min>
+                    <tt:Max>16384</tt:Max>
+                </tt:BitrateRange>
             </tt:H265>
-        </tt:Extension>
-`)
-	} else {
-		e.Append(`        <tt:H264>
-            `, resBlock, `
-            <tt:H264ProfilesSupported>Main</tt:H264ProfilesSupported>
-        </tt:H264>
 `)
 	}
-	e.Append(`    </trt:Options>
+	e.Append(`        </tt:Extension>
+    </trt:Options>
 </trt:GetVideoEncoderConfigurationOptionsResponse>`)
 	return e.Bytes()
 }
