@@ -494,11 +494,11 @@ func GetCompatibleVideoEncoderConfigurationsResponse(OnvifProfiles []OnvifProfil
 	e.Append(`<trt:GetCompatibleVideoEncoderConfigurationsResponse>
 `)
 	for _, profile := range OnvifProfiles {
-		if profile.Name != profileToken {
-			continue
-		}
 		for i, stream := range profile.Streams {
 			name, width, height, codec, framerate, kbps, _ := ParseStream(stream)
+			if name != profileToken {
+				continue
+			}
 			enctokenName := name + "_enc_" + strconv.Itoa(i)
 			quality := "4"
 			if i > 0 {
