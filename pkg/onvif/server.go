@@ -276,11 +276,27 @@ func appendProfile(e *Envelope, tag string, profile OnvifProfile) {
         <tt:Resolution><tt:Width>`, strconv.Itoa(width), `</tt:Width><tt:Height>`, strconv.Itoa(height), `</tt:Height></tt:Resolution>
         <tt:Quality>`, quality, `</tt:Quality>
         <tt:RateControl><tt:FrameRateLimit>`, strconv.Itoa(framerate), `</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>`, strconv.Itoa(kbps), `</tt:BitrateLimit></tt:RateControl>
-        <tt:H264>
+`)
+		// Codec-specific sub-block. ONVIF schema: H264 element is only valid
+		// when Encoding=H264; H265 goes inside Extension. Emitting the wrong
+		// one (or always emitting H264) causes strict parsers like Nx Witness
+		// to reject the encoder config as malformed.
+		if codec == "H265" {
+			e.Append(`        <tt:Extension>
+            <tt:H265>
+                <tt:GovLength>60</tt:GovLength>
+                <tt:Profile>Main</tt:Profile>
+            </tt:H265>
+        </tt:Extension>
+`)
+		} else {
+			e.Append(`        <tt:H264>
             <tt:GovLength>60</tt:GovLength>
             <tt:H264Profile>Main</tt:H264Profile>
         </tt:H264>
-        <tt:Multicast>
+`)
+		}
+		e.Append(`        <tt:Multicast>
             <tt:Address>
                 <tt:Type>IPv4</tt:Type>
                 <tt:IPv4Address>0.0.0.0</tt:IPv4Address>
@@ -495,11 +511,15 @@ func GetCompatibleVideoEncoderConfigurationsResponse(OnvifProfiles []OnvifProfil
     <tt:Resolution><tt:Width>`, strconv.Itoa(width), `</tt:Width><tt:Height>`, strconv.Itoa(height), `</tt:Height></tt:Resolution>
     <tt:Quality>`, quality, `</tt:Quality>
     <tt:RateControl><tt:FrameRateLimit>`, strconv.Itoa(framerate), `</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>`, strconv.Itoa(kbps), `</tt:BitrateLimit></tt:RateControl>
-    <tt:H264>
-        <tt:GovLength>60</tt:GovLength>
-        <tt:H264Profile>Main</tt:H264Profile>
-    </tt:H264>
-    <tt:SessionTimeout>PT60S</tt:SessionTimeout>
+`)
+			if codec == "H265" {
+				e.Append(`    <tt:Extension><tt:H265><tt:GovLength>60</tt:GovLength><tt:Profile>Main</tt:Profile></tt:H265></tt:Extension>
+`)
+			} else {
+				e.Append(`    <tt:H264><tt:GovLength>60</tt:GovLength><tt:H264Profile>Main</tt:H264Profile></tt:H264>
+`)
+			}
+			e.Append(`    <tt:SessionTimeout>PT60S</tt:SessionTimeout>
 </trt:Configurations>
 `)
 		}
@@ -551,11 +571,15 @@ func GetVideoEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte 
     <tt:Quality>`, quality, `</tt:Quality>
     <tt:Resolution><tt:Width>`, strconv.Itoa(width), `</tt:Width><tt:Height>`, strconv.Itoa(height), `</tt:Height></tt:Resolution>
     <tt:RateControl><tt:FrameRateLimit>`, strconv.Itoa(framerate), `</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>`, strconv.Itoa(kbps), `</tt:BitrateLimit></tt:RateControl>
-    <tt:H264>
-        <tt:GovLength>60</tt:GovLength>
-        <tt:H264Profile>Main</tt:H264Profile>
-    </tt:H264>
-    <tt:Multicast>
+`)
+			if codec == "H265" {
+				e.Append(`    <tt:Extension><tt:H265><tt:GovLength>60</tt:GovLength><tt:Profile>Main</tt:Profile></tt:H265></tt:Extension>
+`)
+			} else {
+				e.Append(`    <tt:H264><tt:GovLength>60</tt:GovLength><tt:H264Profile>Main</tt:H264Profile></tt:H264>
+`)
+			}
+			e.Append(`    <tt:Multicast>
         <tt:Address>
             <tt:Type>IPv4</tt:Type>
             <tt:IPv4Address>0.0.0.0</tt:IPv4Address>
