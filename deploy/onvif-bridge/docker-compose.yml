@@ -1,9 +1,15 @@
 services:
   onvif-bridge:
     container_name: onvif-bridge
-    build:
-      context: https://github.com/jc-5674/go2rtc.git#feat/configurable-deviceinfo
-      dockerfile: docker/Dockerfile
+    # Build is decoupled from compose because some Docker-host BuildKit
+    # setups fail when compose triggers a build with a remote git context
+    # ("failed to list workers" / "frame too large"). Build the image
+    # separately via Portainer Images UI:
+    #   - Names:           jc-5674/onvif-bridge:patched
+    #   - Build method:    URL
+    #   - URL:             https://github.com/jc-5674/go2rtc.git#master
+    #   - Dockerfile path: docker/Dockerfile
+    # Then deploy this stack — compose just references the pre-built image.
     image: jc-5674/onvif-bridge:patched
     network_mode: host
     restart: unless-stopped
