@@ -15,6 +15,8 @@ Ultimate camera streaming application with support for RTSP, WebRTC, HomeKit, FF
 >
 > If you find this useful: [Buy me a coffee](https://paypal.me/NWaterton)
 
+> **And this is a further fork of [NickWaterton/go2rtc](https://github.com/NickWaterton/go2rtc)** with patches for compatibility with strict commercial VMSes (Nx Witness, Security Spy). See [Fork: jc-5674/go2rtc](#fork-jc-5674go2rtc--strict-vms-extensions) below.
+
 ![](assets/go2rtc.png)
 
 - zero-dependency and zero-config [small app](#go2rtc-binary) for all OS (Windows, macOS, Linux, ARM)
@@ -108,6 +110,100 @@ streamName#res=WxH#codec=X#framerate=N#kbps=N#audio=X
 4. Unifi Protect will query `GetProfiles` and map each stream to a camera channel.
 
 > **Note:** Unifi Protect requires port `3702/UDP` to be reachable for WS-Discovery. If go2rtc is running in Docker, use `--network host`.
+
+---
+
+## Fork: jc-5674/go2rtc — Strict-VMS extensions
+
+> **This is a further fork of [NickWaterton/go2rtc](https://github.com/NickWaterton/go2rtc).** It extends Nick's multi-camera ONVIF server with patches for compatibility with strict commercial VMSes — specifically validated against Nx Witness and Security Spy in a 19-camera Hikvision deployment.
+
+### What's added beyond Nick's fork
+
+#### Multi-stream profile support (one camera with main + sub streams)
+
+A YAML profile can now bundle multiple streams (typically `cam_main` + `cam_sub`). The bridge advertises them as one ONVIF device with a shared `VideoSource` and one `VideoEncoderConfiguration` per stream — matching how real cameras structure their wire format. This is what lets Nx pair main+sub as primary/secondary streams of one logical channel rather than treating them as two unrelated devices. Gated on `len(streams) > 1`; single-stream profiles (Nick's UniFi Protect pattern) hit unchanged code.
+
+```yaml
+onvif:
+  profiles:
+    - name: cam01
+      port: 8081
+      streams:
+        - "cam01_main#res=3840x2160#codec=H265#framerate=20#kbps=6144#audio=G711"
+        - "cam01_sub#res=640x360#codec=H265#framerate=10#kbps=1024"
+```
+
+#### Per-profile `device_info` overrides
+
+```yaml
+profiles:
+  - name: cam01
+    port: 8081
+    streams: [...]
+    device_info:
+      manufacturer:     "Dahua"
+      model:            "DHI-NVR5232-16P-4KS2E"
+      firmware_version: "4.002.0000000.8.R"
+      serial_number:    "MY-CAM-01"   # MUST be unique per profile — VMSes dedupe on serial
+      hardware_id:      "1.00"
+```
+
+Useful for VMSes that pick license class (Pro vs Encoder) by driver match against Manufacturer + Model. Empty fields fall through to upstream defaults.
+
+#### WS-Security auth on incoming SOAP
+
+```yaml
+profiles:
+  - name: cam01
+    port: 8081
+    username: "admin"
+    password: "your-chosen-password"
+    streams: [...]
+```
+
+Validates WS-Security `PasswordDigest` per `oasis-200401-wss-username-token-profile-1.0`. Empty `password` disables auth (backward compat — Nick's behaviour preserved).
+
+#### Audio capability binding + missing handler
+
+- `<tt:AudioSourceConfiguration>` now emitted inside the Profile element. Without this, Nx reads the device as "no audio input" even when `GetAudioSources` advertises one — the linkage from Profile → AudioSource lives only inside the Profile.
+- `GetAudioEncoderConfigurationOptions` handler added. Strict gSOAP-based clients (Nx) call this when validating the audio capability tree; without a handler, the bridge previously returned HTTP 400 "operation not supported" and Nx silently rejected audio with "audio is not configured properly".
+
+#### Strict-VMS SOAP fixes
+
+| Issue                                                                                                         | Fix                                                                  |
+|---------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
+| `GetCompatibleVideoEncoderConfigurations` returned empty (matched against config-level `profile.Name` instead of stream-derived ONVIF profile token) | Match by stream-derived token                                        |
+| `GetVideoEncoderConfigurations` emitted wrong codec sub-block (always H264, even for H265 encoders)           | Codec-appropriate block per encoder                                  |
+| `GetVideoEncoderConfigurationOptions` advertised empty H264 ranges — Nx aborts with "no video options"         | Always emits H264 + `BitrateRange`; H265 added as Extension when applicable |
+| `GetVideoSourceConfigurationOptions` was unhandled — Nx loops discovery silently                              | Handler added                                                        |
+| `GetCompatibleVideoEncoderConfigurations` was unhandled — Nx loops discovery silently                         | Handler added                                                        |
+| `GetVideoEncoderConfigurationOptions` was unhandled — Nx aborts the device-add with "unknown_error"           | Handler added                                                        |
+| `GetVideoSources` / `GetAudioSources` children emitted in `tt:` namespace — strict parsers silently filter them, channel count = 0 | Children moved to `trt:` namespace (matches response wrapper)        |
+| `GetNetworkInterfaces` returned empty — Nx aborts (it keys cameras by MAC address)                            | Synthesises NetworkInterfaces with stable per-profile MAC (`02:xx:xx:xx:xx:xx` derived from profile name) |
+| `GetAudioEncoderConfigurations` advertised non-standard 16000 Hz sample rate                                  | 8 kHz (standard G.711 rate)                                          |
+| `GetAudioEncoderConfigurationOptions` emitted `<tt:Items>44.1</tt:Items>` in `tt:IntList` — gSOAP parse error  | Integer-only sample rates                                            |
+| RTSP `PLAY` response missing `RTP-Info` header — Security Spy refuses to play                                 | Header added                                                         |
+
+### Compatibility with Nick's fork
+
+All additions are gated on configuration:
+- Empty `device_info` fields → upstream defaults
+- Single-stream profile (`len(streams) <= 1`) → unchanged data model
+- Empty `password` → no auth required
+
+Existing UniFi Protect deployments running Nick's fork can switch to this fork without reconfiguring.
+
+### Real-world validation
+
+Patches were validated end-to-end against:
+- **Nx Witness 6.x** — strict gSOAP-based ONVIF client, validates the full capability tree.
+- **Security Spy** — strict RTSP client (the reason the `RTP-Info` fix exists).
+
+Running continuously in a 19-camera Hikvision deployment with both VMSes consuming from the bridge's `:8554` RTSP fan-out simultaneously. Cameras see one upstream session each regardless of how many VMSes are downstream.
+
+### Documentation
+
+Each patch's rationale, failure mode it solves, and validation evidence is captured in its commit message. `git log` is the operational documentation. The patches are designed to be upstream-PR-friendly — every additive feature is gated behind config that defaults to upstream behaviour, so contributing them to Nick's fork or AlexxIT's main fork wouldn't break existing users.
 
 ---
 
