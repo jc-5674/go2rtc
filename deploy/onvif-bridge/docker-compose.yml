@@ -11,6 +11,7 @@ services:
     #   - Dockerfile path: docker/Dockerfile
     # Then deploy this stack — compose just references the pre-built image.
     image: jc-5674/onvif-bridge:patched
+    pull_policy: never                       # image is built locally via Portainer Images UI; never pull from registry
     network_mode: host
     restart: unless-stopped
     volumes:
