@@ -188,14 +188,38 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 			b = onvif.GetOSDOptionsResponse()
 
 		case onvif.DeviceGetDeviceInformation:
-			// important for Hass: SerialNumber (unique server ID)
-			// r.Host includes port so each per-camera server has a unique serial.
-			// Unifi Protect auto-names devices as Manufacturer + " " + Model.
-			// UP's "Model" field displays the ONVIF Model value.
-			// Manufacturer = camera name, Model = "go2rtc" gives:
-			//   UP auto-name: "<cameraName> go2rtc" (editable in UP UI)
-			//   UP model field: "go2rtc"
-			b = onvif.GetDeviceInformationResponse(deviceName, "go2rtc", app.Version, r.Host)
+			// Defaults preserve upstream behaviour:
+			//   Manufacturer = camera name (UP shows "<cameraName> go2rtc")
+			//   Model        = "go2rtc"
+			//   Serial       = r.Host (includes port; unique per-camera server)
+			//   HardwareId   = "1.00"
+			// Per-profile device_info overrides drive VMS driver matching
+			// (e.g. Nx Witness allocating an encoder license requires
+			// Manufacturer + Model strings on its encoder driver list).
+			manuf := deviceName
+			model := "go2rtc"
+			firmware := app.Version
+			serial := r.Host
+			hardwareId := "1.00"
+			if len(profiles) == 1 {
+				di := profiles[0].DeviceInfo
+				if di.Manufacturer != "" {
+					manuf = di.Manufacturer
+				}
+				if di.Model != "" {
+					model = di.Model
+				}
+				if di.FirmwareVersion != "" {
+					firmware = di.FirmwareVersion
+				}
+				if di.SerialNumber != "" {
+					serial = di.SerialNumber
+				}
+				if di.HardwareId != "" {
+					hardwareId = di.HardwareId
+				}
+			}
+			b = onvif.GetDeviceInformationResponse(manuf, model, firmware, serial, hardwareId)
 
 		case onvif.ServiceGetServiceCapabilities:
 			// important for Hass

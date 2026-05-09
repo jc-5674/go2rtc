@@ -9,10 +9,22 @@ import (
 )
 
 type OnvifProfile struct {
-	Name    string   `yaml:"name"`
-	Port    int      `yaml:"port"`    // if > 0, this camera gets its own HTTP server on this port
-	IP      string   `yaml:"ip"`      // optional: bind camera server and WS-Discovery to this IP (for multi-camera setups where each camera needs its own IP)
-	Streams []string `yaml:"streams"`
+	Name       string     `yaml:"name"`
+	Port       int        `yaml:"port"`        // if > 0, this camera gets its own HTTP server on this port
+	IP         string     `yaml:"ip"`          // optional: bind camera server and WS-Discovery to this IP (for multi-camera setups where each camera needs its own IP)
+	Streams    []string   `yaml:"streams"`
+	DeviceInfo DeviceInfo `yaml:"device_info"` // optional: per-profile overrides for GetDeviceInformation response (drives VMS driver/license matching)
+}
+
+// DeviceInfo overrides the strings returned in the ONVIF GetDeviceInformation
+// SOAP response. Empty fields fall back to upstream defaults so behaviour is
+// unchanged unless explicitly configured.
+type DeviceInfo struct {
+	Manufacturer    string `yaml:"manufacturer"`
+	Model           string `yaml:"model"`
+	FirmwareVersion string `yaml:"firmware_version"`
+	SerialNumber    string `yaml:"serial_number"`
+	HardwareId      string `yaml:"hardware_id"`
 }
 
 const ServiceGetServiceCapabilities = "GetServiceCapabilities"
@@ -136,14 +148,14 @@ func GetSystemDateAndTimeResponse() []byte {
 	return e.Bytes()
 }
 
-func GetDeviceInformationResponse(manuf, model, firmware, serial string) []byte {
+func GetDeviceInformationResponse(manuf, model, firmware, serial, hardwareId string) []byte {
 	e := NewEnvelope()
 	e.Append(`<tds:GetDeviceInformationResponse>
 	<tds:Manufacturer>`, manuf, `</tds:Manufacturer>
 	<tds:Model>`, model, `</tds:Model>
 	<tds:FirmwareVersion>`, firmware, `</tds:FirmwareVersion>
 	<tds:SerialNumber>`, serial, `</tds:SerialNumber>
-	<tds:HardwareId>1.00</tds:HardwareId>
+	<tds:HardwareId>`, hardwareId, `</tds:HardwareId>
 </tds:GetDeviceInformationResponse>`)
 	return e.Bytes()
 }
