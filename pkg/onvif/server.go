@@ -243,12 +243,34 @@ func appendProfile(e *Envelope, tag string, profile OnvifProfile) {
 		return
 	}
 
+	// When a YAML profile bundles multiple streams (main+sub), they represent
+	// different encodings of the SAME sensor — so all VideoSourceConfigurations
+	// must point at one shared VideoSource token AND advertise the same Bounds
+	// rectangle (the sensor's full crop). The per-stream encoded resolution
+	// lives on VideoEncoderConfiguration, not VideoSourceConfiguration. This
+	// is what lets VMSes (Nx Witness, etc.) pair the streams as primary/
+	// secondary of one logical channel. Single-stream profiles keep the
+	// upstream-compatible per-stream layout so existing consumers (UniFi
+	// Protect bridge usage) are unaffected.
+	sharedSource := len(profile.Streams) > 1
+	sharedSrcToken := profile.Name + "_src"
+	sharedSrcW, sharedSrcH := 0, 0
+	if sharedSource {
+		_, w, h, _, _, _, _ := ParseStream(profile.Streams[0])
+		sharedSrcW, sharedSrcH = w, h
+	}
+
 	firstaudiotokenName := ""
 	quality := "4"
 
 	for i, stream := range profile.Streams {
 		streamName, width, height, codec, framerate, kbps, audio := ParseStream(stream)
 		srctokenName := streamName + "_src_" + strconv.Itoa(i)
+		boundsW, boundsH := width, height
+		if sharedSource {
+			srctokenName = sharedSrcToken
+			boundsW, boundsH = sharedSrcW, sharedSrcH
+		}
 		srctcfgtokenName := streamName + "_srccfg_" + strconv.Itoa(i)
 		enctokenName := streamName + "_enc_" + strconv.Itoa(i)
 		audiotokenName := streamName + "_audio_" + strconv.Itoa(i)
@@ -267,7 +289,7 @@ func appendProfile(e *Envelope, tag string, profile OnvifProfile) {
         <tt:Name>Video`, streamName, `</tt:Name>
         <tt:UseCount>1</tt:UseCount>
         <tt:SourceToken>`, srctokenName, `</tt:SourceToken>
-        <tt:Bounds x="0" y="0" width="`, strconv.Itoa(width), `" height="`, strconv.Itoa(height), `"/>
+        <tt:Bounds x="0" y="0" width="`, strconv.Itoa(boundsW), `" height="`, strconv.Itoa(boundsH), `"/>
     </tt:VideoSourceConfiguration>
     <tt:VideoEncoderConfiguration token="`, enctokenName, `">
         <tt:Name>Encoder`, streamName, `</tt:Name>
@@ -333,15 +355,27 @@ func GetVideoSourceConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte {
 	e.Append(`<trt:GetVideoSourceConfigurationsResponse>
 `)
 	for _, profile := range OnvifProfiles {
+		sharedSource := len(profile.Streams) > 1
+		sharedSrcToken := profile.Name + "_src"
+		sharedSrcW, sharedSrcH := 0, 0
+		if sharedSource {
+			_, w, h, _, _, _, _ := ParseStream(profile.Streams[0])
+			sharedSrcW, sharedSrcH = w, h
+		}
 		for i, stream := range profile.Streams {
 			name, width, height, _, _, _, _ := ParseStream(stream)
 			srctokenName := name + "_src_" + strconv.Itoa(i)
+			boundsW, boundsH := width, height
+			if sharedSource {
+				srctokenName = sharedSrcToken
+				boundsW, boundsH = sharedSrcW, sharedSrcH
+			}
 			srctcfgtokenName := name + "_srccfg_" + strconv.Itoa(i)
 			e.Append(`<trt:Configurations token="`, srctcfgtokenName, `">
     <tt:Name>Video`, name, `</tt:Name>
     <tt:UseCount>1</tt:UseCount>
     <tt:SourceToken>`, srctokenName, `</tt:SourceToken>
-    <tt:Bounds x="0" y="0" width="`, strconv.Itoa(width), `" height="`, strconv.Itoa(height), `"/>
+    <tt:Bounds x="0" y="0" width="`, strconv.Itoa(boundsW), `" height="`, strconv.Itoa(boundsH), `"/>
 </trt:Configurations>
 `)
 		}
@@ -363,16 +397,28 @@ func appendVideoSourceConfiguration(e *Envelope, tag, name string, OnvifProfiles
 	// name may be a bare stream name or a VideoSourceConfiguration token (streamName_srccfg_N)
 	streamName := StreamNameFromConfigToken(name)
 	for _, profile := range OnvifProfiles {
+		sharedSource := len(profile.Streams) > 1
+		sharedSrcToken := profile.Name + "_src"
+		sharedSrcW, sharedSrcH := 0, 0
+		if sharedSource {
+			_, w, h, _, _, _, _ := ParseStream(profile.Streams[0])
+			sharedSrcW, sharedSrcH = w, h
+		}
 		for i, stream := range profile.Streams {
 			sName, width, height, _, _, _, _ := ParseStream(stream)
 			if sName == streamName {
 				srctokenName := sName + "_src_" + strconv.Itoa(i)
+				boundsW, boundsH := width, height
+				if sharedSource {
+					srctokenName = sharedSrcToken
+					boundsW, boundsH = sharedSrcW, sharedSrcH
+				}
 				srctcfgtokenName := sName + "_srccfg_" + strconv.Itoa(i)
 				e.Append(`<trt:`, tag, ` token="`, srctcfgtokenName, `">
     <tt:Name>Video`, sName, `</tt:Name>
     <tt:UseCount>1</tt:UseCount>
     <tt:SourceToken>`, srctokenName, `</tt:SourceToken>
-    <tt:Bounds x="0" y="0" width="`, strconv.Itoa(width), `" height="`, strconv.Itoa(height), `"/>
+    <tt:Bounds x="0" y="0" width="`, strconv.Itoa(boundsW), `" height="`, strconv.Itoa(boundsH), `"/>
 </trt:`, tag, `>
 `)
 			}
@@ -391,11 +437,20 @@ func GetVideoSourceConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, co
 	width, height := 1920, 1080
 	srctokenName := configToken
 	for _, profile := range OnvifProfiles {
+		sharedSource := len(profile.Streams) > 1
 		for i, stream := range profile.Streams {
 			name, w, h, _, _, _, _ := ParseStream(stream)
 			if name == streamName {
-				width, height = w, h
-				srctokenName = name + "_src_" + strconv.Itoa(i)
+				if sharedSource {
+					// Shared source advertises the sensor's native resolution
+					// (= primary stream's), not the per-stream encoded size.
+					_, pW, pH, _, _, _, _ := ParseStream(profile.Streams[0])
+					width, height = pW, pH
+					srctokenName = profile.Name + "_src"
+				} else {
+					width, height = w, h
+					srctokenName = name + "_src_" + strconv.Itoa(i)
+				}
 				break
 			}
 		}
@@ -485,20 +540,33 @@ func GetVideoEncoderConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, c
 }
 
 // GetCompatibleVideoEncoderConfigurationsResponse returns the encoder
-// configs valid for a given profile. In our model each profile maps
-// 1:1 to its encoder (cam01_enc_0 etc.), so we just return that one.
-// Without this, Nx Witness can't complete the capability tree and
-// loops the discovery probe.
+// configs valid for a given profile. ONVIF semantics: encoders are
+// "compatible" when they can be configured into the queried profile's
+// VideoSource. For multi-stream YAML profiles (main+sub bundle) all
+// encoders share a VideoSource, so we return ALL encoders within that
+// YAML profile — this is what lets VMSes pair main/sub as primary/
+// secondary of one logical channel. For single-stream profiles we
+// return just that one encoder.
 func GetCompatibleVideoEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile, profileToken string) []byte {
 	e := NewEnvelope()
 	e.Append(`<trt:GetCompatibleVideoEncoderConfigurationsResponse>
 `)
 	for _, profile := range OnvifProfiles {
+		// Find the YAML profile containing the queried ONVIF profile token
+		// (= a stream name within that profile).
+		contains := false
+		for _, stream := range profile.Streams {
+			sName, _, _, _, _, _, _ := ParseStream(stream)
+			if sName == profileToken {
+				contains = true
+				break
+			}
+		}
+		if !contains {
+			continue
+		}
 		for i, stream := range profile.Streams {
 			name, width, height, codec, framerate, kbps, _ := ParseStream(stream)
-			if name != profileToken {
-				continue
-			}
 			enctokenName := name + "_enc_" + strconv.Itoa(i)
 			quality := "4"
 			if i > 0 {
@@ -532,15 +600,31 @@ func GetVideoSourcesResponse(OnvifProfiles []OnvifProfile) []byte {
 	e := NewEnvelope()
 	e.Append(`<trt:GetVideoSourcesResponse>
 `)
+	// Element MUST be in trt: namespace (matches the response wrapper) —
+	// Nx Witness and other strict ONVIF parsers filter children by
+	// namespace and silently skip wrong-namespace VideoSources elements
+	// (resulting in a "Range size = 0" channel-count error).
 	for _, profile := range OnvifProfiles {
+		if len(profile.Streams) == 0 {
+			continue
+		}
+		if len(profile.Streams) > 1 {
+			// Shared source per YAML profile — advertise the sensor's native
+			// resolution (= primary stream's). Sub-streams are downscaled
+			// from this same sensor in real cameras.
+			_, width, height, _, framerate, _, _ := ParseStream(profile.Streams[0])
+			srctokenName := profile.Name + "_src"
+			e.Append(`<trt:VideoSources token="`, srctokenName, `">
+    <tt:Framerate>`, strconv.Itoa(framerate), `</tt:Framerate>
+    <tt:Resolution><tt:Width>`, strconv.Itoa(width), `</tt:Width><tt:Height>`, strconv.Itoa(height), `</tt:Height></tt:Resolution>
+</trt:VideoSources>
+`)
+			continue
+		}
+		// Single-stream profile: one source per stream (upstream-compatible).
 		for i, stream := range profile.Streams {
 			name, width, height, _, framerate, _, _ := ParseStream(stream)
 			srctokenName := name + "_src_" + strconv.Itoa(i)
-			// Element MUST be in trt: namespace (matches the response
-			// wrapper) — Nx Witness and other strict ONVIF parsers
-			// filter children by namespace and silently skip
-			// wrong-namespace VideoSources elements (resulting in a
-			// "Range size = 0" channel-count error).
 			e.Append(`<trt:VideoSources token="`, srctokenName, `">
     <tt:Framerate>`, strconv.Itoa(framerate), `</tt:Framerate>
     <tt:Resolution><tt:Width>`, strconv.Itoa(width), `</tt:Width><tt:Height>`, strconv.Itoa(height), `</tt:Height></tt:Resolution>
