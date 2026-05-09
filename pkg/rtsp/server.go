@@ -202,7 +202,31 @@ func (c *Conn) Accept() error {
 				}
 			}
 
-			res := &tcp.Response{Request: req}
+			res := &tcp.Response{
+				Header:  map[string][]string{},
+				Request: req,
+			}
+
+			// RTP-Info header — required by strict RTSP clients (notably
+			// Nx Witness's Dahua driver) to start RTP stream
+			// synchronisation. Without it the client accepts the PLAY
+			// 200 OK and then immediately TEARDOWNs (observed during
+			// 2026-05-09 pilot — VLC tolerates the missing header,
+			// Nx does not).
+			if c.mode == core.ModePassiveConsumer && req.Method == MethodPlay {
+				baseURL := req.URL.String()
+				var parts []string
+				for i, sender := range c.Senders {
+					if sender.Media.ID != MethodSetup {
+						continue
+					}
+					parts = append(parts, fmt.Sprintf("url=%s/trackID=%d;seq=1;rtptime=0", baseURL, i))
+				}
+				if len(parts) > 0 {
+					res.Header.Set("RTP-Info", strings.Join(parts, ","))
+				}
+			}
+
 			err = c.WriteResponse(res)
 			c.playOK = true
 			return err
