@@ -276,6 +276,16 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 			token := onvif.FindTagValue(b, "ConfigurationToken")
 			b = onvif.GetVideoSourceConfigurationResponse(token, profiles)
 
+		case onvif.MediaGetVideoSourceConfigurationOptions:
+			// Nx Witness device-add validation; without this Nx loops the probe
+			token := onvif.FindTagValue(b, "ConfigurationToken")
+			b = onvif.GetVideoSourceConfigurationOptionsResponse(profiles, token)
+
+		case onvif.MediaGetCompatibleVideoEncoderConfigurations:
+			// Nx Witness device-add validation; without this Nx loops the probe
+			token := onvif.FindTagValue(b, "ProfileToken")
+			b = onvif.GetCompatibleVideoEncoderConfigurationsResponse(profiles, token)
+
 		case onvif.MediaGetStreamUri:
 			host, _, err := net.SplitHostPort(r.Host)
 			if err != nil {

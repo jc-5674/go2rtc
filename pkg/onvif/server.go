@@ -59,9 +59,11 @@ const (
 	MediaGetSnapshotUri                = "GetSnapshotUri"
 	MediaGetStreamUri                  = "GetStreamUri"
 	MediaGetVideoEncoderConfigurations = "GetVideoEncoderConfigurations"
-	MediaGetVideoSources               = "GetVideoSources"
-	MediaGetVideoSourceConfiguration   = "GetVideoSourceConfiguration"
-	MediaGetVideoSourceConfigurations  = "GetVideoSourceConfigurations"
+	MediaGetVideoSources                       = "GetVideoSources"
+	MediaGetVideoSourceConfiguration           = "GetVideoSourceConfiguration"
+	MediaGetVideoSourceConfigurations          = "GetVideoSourceConfigurations"
+	MediaGetVideoSourceConfigurationOptions    = "GetVideoSourceConfigurationOptions"
+	MediaGetCompatibleVideoEncoderConfigurations = "GetCompatibleVideoEncoderConfigurations"
 )
 
 // Package-level compiled regexes (avoids recompilation on every call).
@@ -359,6 +361,81 @@ func appendVideoSourceConfiguration(e *Envelope, tag, name string, OnvifProfiles
 			}
 		}
 	}
+}
+
+// GetVideoSourceConfigurationOptionsResponse advertises the bounds and
+// resolution ranges supported by a VideoSource configuration. Strict
+// VMSes (notably Nx Witness) call this during device-add to validate
+// the camera can be configured at all — silently looping the probe if
+// it fails. We pin Min=Max for each range to the source's actual
+// resolution so the device looks "fixed-config" rather than "negotiable".
+func GetVideoSourceConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, configToken string) []byte {
+	streamName := StreamNameFromConfigToken(configToken)
+	width, height := 1920, 1080
+	srctokenName := configToken
+	for _, profile := range OnvifProfiles {
+		for i, stream := range profile.Streams {
+			name, w, h, _, _, _, _ := ParseStream(stream)
+			if name == streamName {
+				width, height = w, h
+				srctokenName = name + "_src_" + strconv.Itoa(i)
+				break
+			}
+		}
+	}
+	e := NewEnvelope()
+	e.Append(`<trt:GetVideoSourceConfigurationOptionsResponse>
+    <trt:Options>
+        <tt:BoundsRange>
+            <tt:XRange><tt:Min>0</tt:Min><tt:Max>0</tt:Max></tt:XRange>
+            <tt:YRange><tt:Min>0</tt:Min><tt:Max>0</tt:Max></tt:YRange>
+            <tt:WidthRange><tt:Min>`, strconv.Itoa(width), `</tt:Min><tt:Max>`, strconv.Itoa(width), `</tt:Max></tt:WidthRange>
+            <tt:HeightRange><tt:Min>`, strconv.Itoa(height), `</tt:Min><tt:Max>`, strconv.Itoa(height), `</tt:Max></tt:HeightRange>
+        </tt:BoundsRange>
+        <tt:VideoSourceTokensAvailable>`, srctokenName, `</tt:VideoSourceTokensAvailable>
+    </trt:Options>
+</trt:GetVideoSourceConfigurationOptionsResponse>`)
+	return e.Bytes()
+}
+
+// GetCompatibleVideoEncoderConfigurationsResponse returns the encoder
+// configs valid for a given profile. In our model each profile maps
+// 1:1 to its encoder (cam01_enc_0 etc.), so we just return that one.
+// Without this, Nx Witness can't complete the capability tree and
+// loops the discovery probe.
+func GetCompatibleVideoEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile, profileToken string) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetCompatibleVideoEncoderConfigurationsResponse>
+`)
+	for _, profile := range OnvifProfiles {
+		if profile.Name != profileToken {
+			continue
+		}
+		for i, stream := range profile.Streams {
+			name, width, height, codec, framerate, kbps, _ := ParseStream(stream)
+			enctokenName := name + "_enc_" + strconv.Itoa(i)
+			quality := "4"
+			if i > 0 {
+				quality = "1"
+			}
+			e.Append(`<trt:Configurations token="`, enctokenName, `">
+    <tt:Name>Encoder`, name, `</tt:Name>
+    <tt:UseCount>1</tt:UseCount>
+    <tt:Encoding>`, codec, `</tt:Encoding>
+    <tt:Resolution><tt:Width>`, strconv.Itoa(width), `</tt:Width><tt:Height>`, strconv.Itoa(height), `</tt:Height></tt:Resolution>
+    <tt:Quality>`, quality, `</tt:Quality>
+    <tt:RateControl><tt:FrameRateLimit>`, strconv.Itoa(framerate), `</tt:FrameRateLimit><tt:EncodingInterval>1</tt:EncodingInterval><tt:BitrateLimit>`, strconv.Itoa(kbps), `</tt:BitrateLimit></tt:RateControl>
+    <tt:H264>
+        <tt:GovLength>60</tt:GovLength>
+        <tt:H264Profile>Main</tt:H264Profile>
+    </tt:H264>
+    <tt:SessionTimeout>PT60S</tt:SessionTimeout>
+</trt:Configurations>
+`)
+		}
+	}
+	e.Append(`</trt:GetCompatibleVideoEncoderConfigurationsResponse>`)
+	return e.Bytes()
 }
 
 func GetVideoSourcesResponse(OnvifProfiles []OnvifProfile) []byte {
