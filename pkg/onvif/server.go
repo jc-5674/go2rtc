@@ -418,6 +418,94 @@ func GetVideoEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte 
 	return e.Bytes()
 }
 
+// GetAudioSourcesResponse returns one AudioSources element per stream that has
+// audio configured (audio= parameter present). Mirrors GetVideoSourcesResponse.
+func GetAudioSourcesResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioSourcesResponse>
+`)
+	for _, profile := range OnvifProfiles {
+		for i, stream := range profile.Streams {
+			name, _, _, _, _, _, audio := ParseStream(stream)
+			if audio == "" {
+				continue
+			}
+			asrcTokenName := name + "_asrc_" + strconv.Itoa(i)
+			e.Append(`<tt:AudioSources token="`, asrcTokenName, `">
+    <tt:Channels>1</tt:Channels>
+</tt:AudioSources>
+`)
+		}
+	}
+	e.Append(`</trt:GetAudioSourcesResponse>`)
+	return e.Bytes()
+}
+
+// GetAudioSourceConfigurationsResponse returns one AudioSourceConfiguration per
+// audio-enabled stream, pointing each at the matching AudioSource token.
+func GetAudioSourceConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioSourceConfigurationsResponse>
+`)
+	for _, profile := range OnvifProfiles {
+		for i, stream := range profile.Streams {
+			name, _, _, _, _, _, audio := ParseStream(stream)
+			if audio == "" {
+				continue
+			}
+			asrcTokenName := name + "_asrc_" + strconv.Itoa(i)
+			asrccfgTokenName := name + "_asrccfg_" + strconv.Itoa(i)
+			e.Append(`<trt:Configurations token="`, asrccfgTokenName, `">
+    <tt:Name>Audio`, name, `</tt:Name>
+    <tt:UseCount>1</tt:UseCount>
+    <tt:SourceToken>`, asrcTokenName, `</tt:SourceToken>
+</trt:Configurations>
+`)
+		}
+	}
+	e.Append(`</trt:GetAudioSourceConfigurationsResponse>`)
+	return e.Bytes()
+}
+
+// GetAudioEncoderConfigurationsResponse returns one AudioEncoderConfiguration
+// per audio-enabled stream. Encoding is passed through verbatim from the
+// stream string's audio= parameter (ONVIF expects G711/G726/AAC; the user
+// is responsible for matching their camera's actual audio codec).
+func GetAudioEncoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioEncoderConfigurationsResponse>
+`)
+	for _, profile := range OnvifProfiles {
+		for i, stream := range profile.Streams {
+			name, _, _, _, _, _, audio := ParseStream(stream)
+			if audio == "" {
+				continue
+			}
+			audioTokenName := name + "_audio_" + strconv.Itoa(i)
+			e.Append(`<trt:Configurations token="`, audioTokenName, `">
+    <tt:Name>Audio`, name, `</tt:Name>
+    <tt:UseCount>1</tt:UseCount>
+    <tt:Encoding>`, audio, `</tt:Encoding>
+    <tt:Bitrate>64</tt:Bitrate>
+    <tt:SampleRate>16000</tt:SampleRate>
+    <tt:Multicast>
+        <tt:Address>
+            <tt:Type>IPv4</tt:Type>
+            <tt:IPv4Address>0.0.0.0</tt:IPv4Address>
+        </tt:Address>
+        <tt:Port>0</tt:Port>
+        <tt:TTL>1</tt:TTL>
+        <tt:AutoStart>false</tt:AutoStart>
+    </tt:Multicast>
+    <tt:SessionTimeout>PT60S</tt:SessionTimeout>
+</trt:Configurations>
+`)
+		}
+	}
+	e.Append(`</trt:GetAudioEncoderConfigurationsResponse>`)
+	return e.Bytes()
+}
+
 func GetStreamUriResponse(uri string) []byte {
 	e := NewEnvelope()
 	e.Append(`<trt:GetStreamUriResponse><trt:MediaUri><tt:Uri>`, uri, `</tt:Uri></trt:MediaUri></trt:GetStreamUriResponse>`)

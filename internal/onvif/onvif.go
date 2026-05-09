@@ -161,10 +161,7 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 			onvif.DeviceGetHostname,
 			onvif.DeviceGetNetworkDefaultGateway,
 			onvif.DeviceGetNetworkProtocols,
-			onvif.DeviceGetNTP,
-			onvif.MediaGetAudioEncoderConfigurations,
-			onvif.MediaGetAudioSources,
-			onvif.MediaGetAudioSourceConfigurations:
+			onvif.DeviceGetNTP:
 			b = onvif.StaticResponse(operation)
 
 		case onvif.DeviceGetScopes:
@@ -172,6 +169,15 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 
 		case onvif.MediaGetVideoEncoderConfigurations:
 			b = onvif.GetVideoEncoderConfigurationsResponse(profiles)
+
+		case onvif.MediaGetAudioSources:
+			b = onvif.GetAudioSourcesResponse(profiles)
+
+		case onvif.MediaGetAudioSourceConfigurations:
+			b = onvif.GetAudioSourceConfigurationsResponse(profiles)
+
+		case onvif.MediaGetAudioEncoderConfigurations:
+			b = onvif.GetAudioEncoderConfigurationsResponse(profiles)
 
 		case onvif.DeviceGetCapabilities:
 			// important for Hass: Media section

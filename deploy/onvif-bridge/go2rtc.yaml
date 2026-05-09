@@ -46,13 +46,15 @@ onvif:
     - name: cam01
       port: 8081
       streams:
-        # Default: H.264 1080p, sensible for most Dahua cameras.
-        - "cam01#res=1920x1080#codec=H264#framerate=15#kbps=4000"
+        # Default: H.264 1080p with AAC audio. ONVIF audio Encoding values
+        # the spec defines: G711, G726, AAC. If your camera sends PCMA/PCMU
+        # use audio=G711. If it doesn't send audio, drop the audio= clause.
+        - "cam01#res=1920x1080#codec=H264#framerate=15#kbps=4000#audio=AAC"
         - "cam01#res=704x480#codec=H264#framerate=15#kbps=512"
 
-        # If your pilot camera is H.265 + AAC audio, comment the two
-        # lines above and uncomment these instead (sub-stream typically
-        # stays H.264 even when main is H.265):
+        # If your pilot camera is H.265 + AAC audio, comment the two lines
+        # above and uncomment these instead (sub-streams typically stay
+        # H.264 even when main is H.265):
         # - "cam01#res=3840x2160#codec=H265#framerate=15#kbps=8000#audio=AAC"
         # - "cam01#res=704x480#codec=H264#framerate=15#kbps=512"
 
