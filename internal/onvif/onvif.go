@@ -1,12 +1,15 @@
 package onvif
 
 import (
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strconv"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/AlexxIT/go2rtc/internal/api"
@@ -91,6 +94,125 @@ func Init() {
 }
 
 var log zerolog.Logger
+
+// ----- PTZ relay: resolve the backend camera + cache one client per camera -----
+
+type ptzCamera struct {
+	client *onvif.Client
+	token  string // the camera's own PTZ-capable profile token
+}
+
+var (
+	ptzMu    sync.Mutex
+	ptzCache = map[string]*ptzCamera{}
+)
+
+func anyPTZ(profiles []onvif.OnvifProfile) bool {
+	for _, p := range profiles {
+		if p.Ptz {
+			return true
+		}
+	}
+	return false
+}
+
+// profileByToken finds the profile owning a media profile token (a stream name).
+func profileByToken(profiles []onvif.OnvifProfile, token string) *onvif.OnvifProfile {
+	for i := range profiles {
+		for _, s := range profiles[i].Streams {
+			if name, _, _, _, _, _, _ := onvif.ParseStream(s); name == token {
+				return &profiles[i]
+			}
+		}
+	}
+	return nil
+}
+
+// resolveCameraOnvifURL derives the camera's ONVIF endpoint for PTZ from the
+// profile's stream source — no need to restate creds. Order: explicit ptz_url,
+// then an onvif:// source, then derive from an rtsp/http source (same host +
+// creds, default ONVIF http port/path).
+func resolveCameraOnvifURL(p *onvif.OnvifProfile) string {
+	if p == nil || !p.Ptz {
+		return ""
+	}
+	if p.PtzURL != "" {
+		return p.PtzURL
+	}
+	for _, s := range p.Streams {
+		name, _, _, _, _, _, _ := onvif.ParseStream(s)
+		st := streams.Get(name)
+		if st == nil {
+			continue
+		}
+		srcs := st.Sources()
+		for _, src := range srcs {
+			if strings.HasPrefix(src, "onvif://") {
+				return src
+			}
+		}
+		for _, src := range srcs {
+			u, err := url.Parse(src)
+			if err != nil || u.User == nil {
+				continue
+			}
+			switch u.Scheme {
+			case "rtsp", "rtsps", "http", "https":
+				return (&url.URL{Scheme: "onvif", User: u.User, Host: u.Hostname()}).String()
+			}
+		}
+	}
+	return ""
+}
+
+func getPTZCamera(camURL string) (*ptzCamera, error) {
+	ptzMu.Lock()
+	defer ptzMu.Unlock()
+	if pc := ptzCache[camURL]; pc != nil {
+		return pc, nil
+	}
+	client, err := onvif.NewClient(camURL)
+	if err != nil {
+		return nil, err
+	}
+	if !client.HasPTZ() {
+		return nil, errors.New("camera advertises no PTZ service")
+	}
+	tokens, err := client.GetProfilesTokens()
+	if err != nil || len(tokens) == 0 {
+		return nil, errors.New("camera has no media profiles for PTZ")
+	}
+	pc := &ptzCamera{client: client, token: tokens[0]}
+	ptzCache[camURL] = pc
+	log.Info().Str("camera", camURL).Str("token", pc.token).Msg("[onvif] PTZ relay client ready")
+	return pc, nil
+}
+
+// relayPTZ forwards a movement/preset operation to the backend camera.
+func relayPTZ(operation string, b []byte, profiles []onvif.OnvifProfile) ([]byte, error) {
+	token := onvif.FindTagValue(b, "ProfileToken")
+	p := profileByToken(profiles, token)
+	camURL := resolveCameraOnvifURL(p)
+	if camURL == "" {
+		return nil, errors.New("ptz not configured for profile " + token)
+	}
+	cam, err := getPTZCamera(camURL)
+	if err != nil {
+		return nil, err
+	}
+	switch operation {
+	case onvif.PTZContinuousMove:
+		x, y, z := onvif.ParsePTZVelocity(b)
+		return cam.client.PTZContinuousMove(cam.token, x, y, z)
+	case onvif.PTZStop:
+		return cam.client.PTZStop(cam.token)
+	case onvif.PTZGetPresets:
+		return cam.client.PTZGetPresets(cam.token)
+	case onvif.PTZGotoPreset:
+		return cam.client.PTZGotoPreset(cam.token, onvif.FindTagValue(b, "PresetToken"))
+	}
+	return nil, errors.New("unsupported ptz operation " + operation)
+}
 
 // startCameraServer starts a standalone HTTP server for a single ONVIF camera profile.
 // ip may be nil to listen on all interfaces, or a specific IP for virtual-IP setups.
@@ -232,10 +354,10 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 
 		case onvif.DeviceGetCapabilities:
 			// important for Hass: Media section
-			b = onvif.GetCapabilitiesResponse(r.Host)
+			b = onvif.GetCapabilitiesResponse(r.Host, anyPTZ(profiles))
 
 		case onvif.DeviceGetServices:
-			b = onvif.GetServicesResponse(r.Host)
+			b = onvif.GetServicesResponse(r.Host, anyPTZ(profiles))
 
 		case onvif.DeviceGetOSDs:
 			token := onvif.FindTagValue(b, "ConfigurationToken")
@@ -354,6 +476,31 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 			uri := "http://" + host + ":" + strconv.Itoa(mainAPIPort) + "/api/frame.jpeg?src=" + onvif.FindTagValue(b, "ProfileToken")
 			log.Debug().Msgf("[onvif] Snapshot URL: %s", uri)
 			b = onvif.GetSnapshotUriResponse(uri)
+
+		// ----- PTZ service: synthesised metadata (go2rtc tokens) -----
+		case onvif.PTZGetNodes:
+			b = onvif.GetPTZNodesResponse()
+		case onvif.PTZGetNode:
+			b = onvif.GetPTZNodeResponse()
+		case onvif.PTZGetConfigurations:
+			b = onvif.GetPTZConfigurationsResponse(profiles)
+		case onvif.PTZGetConfiguration:
+			name := strings.TrimPrefix(onvif.FindTagValue(b, "PTZConfigurationToken"), "ptzcfg_")
+			b = onvif.GetPTZConfigurationResponse(name)
+		case onvif.PTZGetConfigurationOptions:
+			b = onvif.GetPTZConfigurationOptionsResponse()
+		case onvif.PTZGetStatus:
+			b = onvif.GetPTZStatusResponse()
+
+		// ----- PTZ service: motion/presets relayed to the backend camera -----
+		case onvif.PTZContinuousMove, onvif.PTZStop, onvif.PTZGetPresets, onvif.PTZGotoPreset:
+			resp, ptzErr := relayPTZ(operation, b, profiles)
+			if ptzErr != nil {
+				log.Warn().Err(ptzErr).Str("op", operation).Msg("[onvif] ptz relay failed")
+				http.Error(w, ptzErr.Error(), http.StatusBadGateway)
+				return
+			}
+			b = resp
 
 		default:
 			http.Error(w, "unsupported operation", http.StatusBadRequest)

@@ -95,7 +95,7 @@ func GetRequestAction(b []byte) string {
 	return string(m[1])
 }
 
-func GetCapabilitiesResponse(host string) []byte {
+func GetCapabilitiesResponse(host string, ptz bool) []byte {
 	e := NewEnvelope()
 	e.Append(`<tds:GetCapabilitiesResponse>
 	<tds:Capabilities>
@@ -109,13 +109,20 @@ func GetCapabilitiesResponse(host string) []byte {
 				<tt:RTP_TCP>false</tt:RTP_TCP>
 				<tt:RTP_RTSP_TCP>true</tt:RTP_RTSP_TCP>
 			</tt:StreamingCapabilities>
-		</tt:Media>
+		</tt:Media>`)
+	if ptz {
+		e.Append(`
+		<tt:PTZ>
+			<tt:XAddr>http://`, host, `/onvif/ptz_service</tt:XAddr>
+		</tt:PTZ>`)
+	}
+	e.Append(`
 	</tds:Capabilities>
 </tds:GetCapabilitiesResponse>`)
 	return e.Bytes()
 }
 
-func GetServicesResponse(host string) []byte {
+func GetServicesResponse(host string, ptz bool) []byte {
 	e := NewEnvelope()
 	e.Append(`<tds:GetServicesResponse>
 	<tds:Service>
@@ -127,7 +134,16 @@ func GetServicesResponse(host string) []byte {
 		<tds:Namespace>http://www.onvif.org/ver10/media/wsdl</tds:Namespace>
 		<tds:XAddr>http://`, host, `/onvif/media_service</tds:XAddr>
 		<tds:Version><tt:Major>2</tt:Major><tt:Minor>5</tt:Minor></tds:Version>
-	</tds:Service>
+	</tds:Service>`)
+	if ptz {
+		e.Append(`
+	<tds:Service>
+		<tds:Namespace>http://www.onvif.org/ver20/ptz/wsdl</tds:Namespace>
+		<tds:XAddr>http://`, host, `/onvif/ptz_service</tds:XAddr>
+		<tds:Version><tt:Major>2</tt:Major><tt:Minor>5</tt:Minor></tds:Version>
+	</tds:Service>`)
+	}
+	e.Append(`
 </tds:GetServicesResponse>`)
 	return e.Bytes()
 }
@@ -359,6 +375,11 @@ func appendProfile(e *Envelope, tag string, profile OnvifProfile) {
 		} else if firstaudiotokenName != "" {
 			e.Append(`    <tt:AudioEncoderConfiguration token="`, firstaudiotokenName, `"/>
 `)
+		}
+		// PTZ-enabled profiles carry a PTZConfiguration so a strict VMS shows
+		// PTZ controls for the channel; the relay forwards motion to the camera.
+		if profile.Ptz {
+			e.Append(PTZConfigurationXML(profile.Name))
 		}
 		e.Append(`</trt:`, tag, `>
 `)
