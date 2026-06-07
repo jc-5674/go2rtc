@@ -18,6 +18,8 @@ type OnvifProfile struct {
 	DeviceInfo DeviceInfo `yaml:"device_info"` // optional: per-profile overrides for GetDeviceInformation response (drives VMS driver/license matching)
 	Username   string     `yaml:"username"`    // optional: required username for incoming WS-Security auth (empty disables auth — backward compat)
 	Password   string     `yaml:"password"`    // optional: required password for incoming WS-Security auth; PasswordDigest validated per oasis-200401-wss-username-token-profile-1.0
+	Ptz        bool       `yaml:"ptz"`         // optional: enable PTZ relay — derives the camera's ONVIF endpoint + creds from the stream source (no need to restate them)
+	PtzURL     string     `yaml:"ptz_url"`     // optional: explicit camera ONVIF URL (onvif://user:pass@host[:port][/path]) — only when it can't be derived (non-standard ONVIF port/path)
 }
 
 // DeviceInfo overrides the strings returned in the ONVIF GetDeviceInformation

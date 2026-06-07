@@ -20,6 +20,7 @@ type Client struct {
 	deviceURL string
 	mediaURL  string
 	imaginURL string
+	ptzURL    string
 }
 
 func NewClient(rawURL string) (*Client, error) {
@@ -44,9 +45,13 @@ func NewClient(rawURL string) (*Client, error) {
 
 	client.mediaURL = FindTagValue(b, "Media.+?XAddr")
 	client.imaginURL = FindTagValue(b, "Imaging.+?XAddr")
+	client.ptzURL = FindTagValue(b, "PTZ.+?XAddr")
 
 	return client, nil
 }
+
+// HasPTZ reports whether the camera advertised a PTZ service in GetCapabilities.
+func (c *Client) HasPTZ() bool { return c.ptzURL != "" }
 
 func (c *Client) GetURI() (string, error) {
 	query := c.url.Query()
