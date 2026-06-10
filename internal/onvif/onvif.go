@@ -35,6 +35,13 @@ func Init() {
 
 	log = app.GetLogger("onvif")
 
+	// Auto-wire two-way-audio talk sinks before anything serves: derives each
+	// talk-enabled profile's ISAPI endpoint from its existing stream source so
+	// `two_way_audio: true` is a single self-contained flag (creds reused, never
+	// restated). Safe here — streams.Init() ran earlier in main(), so the
+	// configured streams already exist.
+	wireTwoWayAudioSinks(OnvifProfiles)
+
 	streams.HandleFunc("onvif", streamOnvif)
 
 	// Main ONVIF server on the go2rtc API port — serves all profiles.
@@ -114,6 +121,79 @@ func anyPTZ(profiles []onvif.OnvifProfile) bool {
 		}
 	}
 	return false
+}
+
+func anyTwoWayAudio(profiles []onvif.OnvifProfile) bool {
+	for _, p := range profiles {
+		if p.TwoWayAudio {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveCameraISAPIURL derives the Hikvision ISAPI two-way-audio sink for a
+// talk-enabled profile/stream — reusing the host + credentials already
+// configured for the video source, so they are never restated. Order: explicit
+// audio_url override, then derive from an rtsp/rtsps/http/https source (same
+// host + creds, default ISAPI HTTP port). Returns "" if nothing is derivable.
+func resolveCameraISAPIURL(p *onvif.OnvifProfile, streamName string) string {
+	if p == nil || !p.TwoWayAudio {
+		return ""
+	}
+	if p.AudioURL != "" {
+		return p.AudioURL
+	}
+	st := streams.Get(streamName)
+	if st == nil {
+		return ""
+	}
+	for _, src := range st.Sources() {
+		u, err := url.Parse(src)
+		if err != nil || u.User == nil {
+			continue
+		}
+		switch u.Scheme {
+		case "rtsp", "rtsps", "http", "https":
+			// Hostname() drops the source port (e.g. rtsp 554); ISAPI is HTTP and
+			// isapi.Dial defaults to the standard port. Non-standard ports use the
+			// audio_url override above.
+			return (&url.URL{Scheme: "isapi", User: u.User, Host: u.Hostname()}).String()
+		}
+	}
+	return ""
+}
+
+// wireTwoWayAudioSinks attaches a derived ISAPI talk sink to every stream of
+// each talk-enabled profile, so `two_way_audio: true` needs no second config
+// line and no restated credentials. The sink is a lazy producer — inert until
+// Nx actually presses talk and the RTSP backchannel attaches.
+func wireTwoWayAudioSinks(profiles []onvif.OnvifProfile) {
+	for _, profile := range profiles {
+		if !profile.TwoWayAudio {
+			continue
+		}
+		p := profile // capture loop variable for &p
+		for _, s := range p.Streams {
+			name, _, _, _, _, _, _ := onvif.ParseStream(s)
+			sink := resolveCameraISAPIURL(&p, name)
+			if sink == "" {
+				log.Warn().Str("profile", p.Name).Str("stream", name).
+					Msg("[onvif] two_way_audio: could not derive ISAPI sink from stream source (set audio_url?)")
+				continue
+			}
+			st := streams.Get(name)
+			if st == nil {
+				continue
+			}
+			st.AddSource(sink)
+			redacted := sink
+			if u, err := url.Parse(sink); err == nil {
+				redacted = u.Redacted()
+			}
+			log.Info().Str("stream", name).Str("sink", redacted).Msg("[onvif] two-way audio sink wired")
+		}
+	}
 }
 
 // profileByToken finds the profile owning a media profile token (a stream name).
@@ -330,7 +410,7 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 			b = onvif.GetNetworkInterfacesResponse(profiles, host)
 
 		case onvif.DeviceGetScopes:
-			b = onvif.GetScopesResponse(deviceName)
+			b = onvif.GetScopesResponse(deviceName, anyTwoWayAudio(profiles))
 
 		case onvif.MediaGetVideoEncoderConfigurations:
 			b = onvif.GetVideoEncoderConfigurationsResponse(profiles)

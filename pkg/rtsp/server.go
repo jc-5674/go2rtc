@@ -107,6 +107,16 @@ func (c *Conn) Accept() error {
 
 		case MethodDescribe:
 			c.mode = core.ModePassiveConsumer
+			// ONVIF clients (e.g. Nx Witness) request a two-way-audio talk
+			// channel via the standard backchannel Require header rather than
+			// go2rtc's proprietary ?backchannel=1 query param. Surface it on the
+			// Conn so the stream handler advertises a sendonly audio track in the
+			// DESCRIBE SDP. Reusing the existing Backchannel field is safe here:
+			// it is only read on the client (ModeActiveProducer) path, which a
+			// server Conn never takes.
+			if hasBackchannelRequire(req) {
+				c.Backchannel = true
+			}
 			c.Fire(MethodDescribe)
 
 			if c.Senders == nil {
@@ -241,6 +251,14 @@ func (c *Conn) Accept() error {
 			return fmt.Errorf("unsupported method: %s", req.Method)
 		}
 	}
+}
+
+// hasBackchannelRequire reports whether an RTSP DESCRIBE asks for the ONVIF
+// audio backchannel (token www.onvif.org/ver20/backchannel) via the Require
+// header. Matched as a case-insensitive substring so the trailing ": true"
+// value form some clients send is tolerated.
+func hasBackchannelRequire(req *tcp.Request) bool {
+	return strings.Contains(strings.ToLower(req.Header.Get("Require")), "backchannel")
 }
 
 func reqTrackID(req *tcp.Request) int {

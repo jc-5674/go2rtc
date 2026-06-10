@@ -20,6 +20,20 @@ type OnvifProfile struct {
 	Password   string     `yaml:"password"`    // optional: required password for incoming WS-Security auth; PasswordDigest validated per oasis-200401-wss-username-token-profile-1.0
 	Ptz        bool       `yaml:"ptz"`         // optional: enable PTZ relay — derives the camera's ONVIF endpoint + creds from the stream source (no need to restate them)
 	PtzURL     string     `yaml:"ptz_url"`     // optional: explicit camera ONVIF URL (onvif://user:pass@host[:port][/path]) — only when it can't be derived (non-standard ONVIF port/path)
+
+	// TwoWayAudio enables native talk-back over this ONVIF device: it advertises
+	// ONVIF Profile T so a VMS like Nx Witness shows the press-to-talk button and
+	// issues an RTSP backchannel DESCRIBE, AND auto-wires the camera's talk sink.
+	// The sink (Hikvision ISAPI TwoWayAudio) is derived from the stream's existing
+	// source — same host + credentials as the video, never restated — exactly as
+	// `ptz: true` derives the PTZ endpoint. The talk audio rides the RTSP
+	// backchannel (Require: www.onvif.org/ver20/backchannel) to that sink.
+	TwoWayAudio bool `yaml:"two_way_audio"`
+	// AudioURL is an explicit backchannel sink URL (e.g.
+	// isapi://user:pass@host[:port]) for the rare case it can't be derived from
+	// the stream source — non-standard ISAPI HTTP port, or a separate talk device.
+	// Mirrors ptz_url. Leave empty to auto-derive.
+	AudioURL string `yaml:"audio_url"`
 }
 
 // DeviceInfo overrides the strings returned in the ONVIF GetDeviceInformation
@@ -967,13 +981,25 @@ func GetOSDsResponse(configurationToken string, cameraName string) []byte {
 
 // GetScopesResponse returns a dynamic GetScopes response using the given device name.
 // Spaces in name are percent-encoded so the scope URI is valid.
-func GetScopesResponse(name string) []byte {
+//
+// When twoWayAudio is set, the device additionally advertises ONVIF Profile T.
+// Profile T is the bidirectional-audio profile; advertising it signals
+// two-way-audio capability to a VMS's ONVIF driver (notably Nx Witness) so it
+// issues the backchannel DESCRIBE and shows the talk button. The audio is
+// carried over the RTSP backchannel, not via this scope — the scope is the
+// discovery-time hint that makes the VMS bother probing.
+func GetScopesResponse(name string, twoWayAudio bool) []byte {
 	encoded := strings.ReplaceAll(name, " ", "%20")
 	e := NewEnvelope()
 	e.Append(`<tds:GetScopesResponse>
 	<tds:Scopes><tt:ScopeDef>Fixed</tt:ScopeDef><tt:ScopeItem>onvif://www.onvif.org/name/`, encoded, `</tt:ScopeItem></tds:Scopes>
 	<tds:Scopes><tt:ScopeDef>Fixed</tt:ScopeDef><tt:ScopeItem>onvif://www.onvif.org/location/github</tt:ScopeItem></tds:Scopes>
-	<tds:Scopes><tt:ScopeDef>Fixed</tt:ScopeDef><tt:ScopeItem>onvif://www.onvif.org/Profile/Streaming</tt:ScopeItem></tds:Scopes>
+	<tds:Scopes><tt:ScopeDef>Fixed</tt:ScopeDef><tt:ScopeItem>onvif://www.onvif.org/Profile/Streaming</tt:ScopeItem></tds:Scopes>`)
+	if twoWayAudio {
+		e.Append(`
+	<tds:Scopes><tt:ScopeDef>Fixed</tt:ScopeDef><tt:ScopeItem>onvif://www.onvif.org/Profile/T</tt:ScopeItem></tds:Scopes>`)
+	}
+	e.Append(`
 	<tds:Scopes><tt:ScopeDef>Fixed</tt:ScopeDef><tt:ScopeItem>onvif://www.onvif.org/type/Network_Video_Transmitter</tt:ScopeItem></tds:Scopes>
 </tds:GetScopesResponse>`)
 	return e.Bytes()

@@ -2,6 +2,7 @@ package streams
 
 import (
 	"encoding/json"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -74,6 +75,23 @@ func (s *Stream) RemoveConsumer(cons core.Consumer) {
 	s.mu.Unlock()
 
 	s.stopProducers()
+}
+
+// AddSource appends a lazy URL-based producer to the stream — used to wire a
+// derived backchannel sink (e.g. isapi://) onto an existing stream without
+// restating it (or its credentials) in config. No-op if a source with the same
+// scheme is already present, so it never doubles up a manually-configured sink.
+// The producer is lazy: nothing connects until a consumer actually needs it.
+func (s *Stream) AddSource(url string) {
+	scheme, _, _ := strings.Cut(url, ":")
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, p := range s.producers {
+		if ps, _, _ := strings.Cut(p.url, ":"); ps == scheme {
+			return
+		}
+	}
+	s.producers = append(s.producers, NewProducer(url))
 }
 
 func (s *Stream) AddProducer(prod core.Producer) {

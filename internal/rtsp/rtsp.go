@@ -200,6 +200,22 @@ func tcpHandler(conn *rtsp.Conn) {
 						{Name: core.CodecPCMU, ClockRate: 8000},
 					},
 				})
+			} else if conn.Backchannel {
+				// ONVIF two-way audio (Require: www.onvif.org/ver20/backchannel),
+				// set by the RTSP server when an ONVIF client like Nx Witness asks
+				// for talk-back. Restrict the offer to G.711 8 kHz mono — the only
+				// codecs Hik ISAPI TwoWayAudio accepts — so Nx never negotiates
+				// Opus/16 kHz the camera bridge can't take. If the stream has no
+				// backchannel-capable producer (no isapi:// source) this media
+				// simply finds no match and is dropped: video is unaffected.
+				conn.Medias = append(conn.Medias, &core.Media{
+					Kind:      core.KindAudio,
+					Direction: core.DirectionRecvonly,
+					Codecs: []*core.Codec{
+						{Name: core.CodecPCMU, ClockRate: 8000},
+						{Name: core.CodecPCMA, ClockRate: 8000},
+					},
+				})
 			}
 
 			if s := query.Get("pkt_size"); s != "" {
