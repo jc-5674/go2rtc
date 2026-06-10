@@ -84,6 +84,20 @@ const (
 	MediaGetCompatibleVideoEncoderConfigurations = "GetCompatibleVideoEncoderConfigurations"
 	MediaGetVideoEncoderConfigurationOptions     = "GetVideoEncoderConfigurationOptions"
 	MediaGetAudioEncoderConfigurationOptions     = "GetAudioEncoderConfigurationOptions"
+
+	// Audio OUTPUT (two-way audio / talk-back). Advertised only for profiles
+	// with two_way_audio; the AudioOutputConfiguration in the profile is what
+	// makes Nx un-grey the talk button. The supporting handlers exist so Nx's
+	// device validation (which probes the options/decoder endpoints) doesn't
+	// hit an unsupported-operation 400 and silently keep the button greyed.
+	MediaGetAudioOutputs                         = "GetAudioOutputs"
+	MediaGetAudioOutputConfigurations            = "GetAudioOutputConfigurations"
+	MediaGetAudioOutputConfiguration             = "GetAudioOutputConfiguration"
+	MediaGetAudioOutputConfigurationOptions      = "GetAudioOutputConfigurationOptions"
+	MediaGetCompatibleAudioOutputConfigurations  = "GetCompatibleAudioOutputConfigurations"
+	MediaGetAudioDecoderConfigurations           = "GetAudioDecoderConfigurations"
+	MediaGetAudioDecoderConfigurationOptions     = "GetAudioDecoderConfigurationOptions"
+	MediaGetCompatibleAudioDecoderConfigurations = "GetCompatibleAudioDecoderConfigurations"
 )
 
 // Package-level compiled regexes (avoids recompilation on every call).
@@ -388,6 +402,20 @@ func appendProfile(e *Envelope, tag string, profile OnvifProfile) {
 `)
 		} else if firstaudiotokenName != "" {
 			e.Append(`    <tt:AudioEncoderConfiguration token="`, firstaudiotokenName, `"/>
+`)
+		}
+		// two_way_audio profiles carry an AudioOutputConfiguration (+ decoder) so
+		// a strict VMS (Nx Witness) un-greys the talk button: the linkage from
+		// Profile → AudioOutput lives ONLY inside this element, exactly like
+		// AudioSourceConfiguration does for the input side. Half-duplex/Auto so
+		// the camera arbitrates talk vs listen. G.711 is implied by the decoder
+		// options endpoint.
+		if profile.TwoWayAudio {
+			appendAudioOutputConfiguration(e, "tt:AudioOutputConfiguration", profile.Name)
+			e.Append(`    <tt:AudioDecoderConfiguration token="`, profile.Name, `_adec">
+        <tt:Name>AudioDecoder`, profile.Name, `</tt:Name>
+        <tt:UseCount>1</tt:UseCount>
+    </tt:AudioDecoderConfiguration>
 `)
 		}
 		// PTZ-enabled profiles carry a PTZConfiguration so a strict VMS shows
@@ -850,6 +878,141 @@ func GetAudioEncoderConfigurationOptionsResponse(OnvifProfiles []OnvifProfile, c
         </tt:Options>
     </trt:Options>
 </trt:GetAudioEncoderConfigurationOptionsResponse>`)
+	return e.Bytes()
+}
+
+// ----- audio OUTPUT (two-way audio / talk-back) response builders -----
+
+// appendAudioOutputConfiguration emits an AudioOutputConfiguration body under the
+// given element name — "tt:AudioOutputConfiguration" inside a Profile, or
+// "trt:Configurations"/"trt:Configuration" in the Get*Configuration(s) responses.
+func appendAudioOutputConfiguration(e *Envelope, elem, name string) {
+	e.Append(`    <`, elem, ` token="`, name, `_aoutcfg">
+        <tt:Name>AudioOutput`, name, `</tt:Name>
+        <tt:UseCount>1</tt:UseCount>
+        <tt:OutputToken>`, name, `_aout</tt:OutputToken>
+        <tt:SendPrimacy>http://www.onvif.org/ver20/HalfDuplex/Auto</tt:SendPrimacy>
+        <tt:OutputLevel>50</tt:OutputLevel>
+    </`, elem, `>
+`)
+}
+
+func appendAudioDecoderConfiguration(e *Envelope, elem, name string) {
+	e.Append(`    <`, elem, ` token="`, name, `_adec">
+        <tt:Name>AudioDecoder`, name, `</tt:Name>
+        <tt:UseCount>1</tt:UseCount>
+    </`, elem, `>
+`)
+}
+
+// twoWayAudioProfiles returns profiles with two_way_audio enabled and ≥1 stream.
+func twoWayAudioProfiles(OnvifProfiles []OnvifProfile) []OnvifProfile {
+	var out []OnvifProfile
+	for _, p := range OnvifProfiles {
+		if p.TwoWayAudio && len(p.Streams) > 0 {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// GetAudioOutputsResponse lists one AudioOutput (the camera's speaker) per
+// two-way-audio profile; its token is referenced by the AudioOutputConfiguration.
+func GetAudioOutputsResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioOutputsResponse>
+`)
+	for _, p := range twoWayAudioProfiles(OnvifProfiles) {
+		e.Append(`<trt:AudioOutputs token="`, p.Name, `_aout"/>
+`)
+	}
+	e.Append(`</trt:GetAudioOutputsResponse>`)
+	return e.Bytes()
+}
+
+func GetAudioOutputConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioOutputConfigurationsResponse>
+`)
+	for _, p := range twoWayAudioProfiles(OnvifProfiles) {
+		appendAudioOutputConfiguration(e, "trt:Configurations", p.Name)
+	}
+	e.Append(`</trt:GetAudioOutputConfigurationsResponse>`)
+	return e.Bytes()
+}
+
+func GetCompatibleAudioOutputConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetCompatibleAudioOutputConfigurationsResponse>
+`)
+	for _, p := range twoWayAudioProfiles(OnvifProfiles) {
+		appendAudioOutputConfiguration(e, "trt:Configurations", p.Name)
+	}
+	e.Append(`</trt:GetCompatibleAudioOutputConfigurationsResponse>`)
+	return e.Bytes()
+}
+
+// GetAudioOutputConfigurationResponse returns a single config. name is the bare
+// profile name (the _aoutcfg suffix already stripped by the caller).
+func GetAudioOutputConfigurationResponse(name string) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioOutputConfigurationResponse>
+`)
+	appendAudioOutputConfiguration(e, "trt:Configuration", name)
+	e.Append(`</trt:GetAudioOutputConfigurationResponse>`)
+	return e.Bytes()
+}
+
+func GetAudioOutputConfigurationOptionsResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioOutputConfigurationOptionsResponse>
+    <trt:Options>
+`)
+	for _, p := range twoWayAudioProfiles(OnvifProfiles) {
+		e.Append(`        <tt:OutputTokensAvailable>`, p.Name, `_aout</tt:OutputTokensAvailable>
+`)
+	}
+	e.Append(`        <tt:SendPrimacyOptions>http://www.onvif.org/ver20/HalfDuplex/Auto</tt:SendPrimacyOptions>
+        <tt:OutputLevelRange><tt:Min>0</tt:Min><tt:Max>100</tt:Max></tt:OutputLevelRange>
+    </trt:Options>
+</trt:GetAudioOutputConfigurationOptionsResponse>`)
+	return e.Bytes()
+}
+
+func GetAudioDecoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioDecoderConfigurationsResponse>
+`)
+	for _, p := range twoWayAudioProfiles(OnvifProfiles) {
+		appendAudioDecoderConfiguration(e, "trt:Configurations", p.Name)
+	}
+	e.Append(`</trt:GetAudioDecoderConfigurationsResponse>`)
+	return e.Bytes()
+}
+
+func GetCompatibleAudioDecoderConfigurationsResponse(OnvifProfiles []OnvifProfile) []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetCompatibleAudioDecoderConfigurationsResponse>
+`)
+	for _, p := range twoWayAudioProfiles(OnvifProfiles) {
+		appendAudioDecoderConfiguration(e, "trt:Configurations", p.Name)
+	}
+	e.Append(`</trt:GetCompatibleAudioDecoderConfigurationsResponse>`)
+	return e.Bytes()
+}
+
+// GetAudioDecoderConfigurationOptionsResponse advertises G.711 8 kHz as the codec
+// the talk-back output accepts — matching the Hik ISAPI TwoWayAudio sink.
+func GetAudioDecoderConfigurationOptionsResponse() []byte {
+	e := NewEnvelope()
+	e.Append(`<trt:GetAudioDecoderConfigurationOptionsResponse>
+    <trt:Options>
+        <tt:G711DecOptions>
+            <tt:Bitrate><tt:Items>64</tt:Items></tt:Bitrate>
+            <tt:SampleRateRange><tt:Items>8</tt:Items></tt:SampleRateRange>
+        </tt:G711DecOptions>
+    </trt:Options>
+</trt:GetAudioDecoderConfigurationOptionsResponse>`)
 	return e.Bytes()
 }
 

@@ -432,6 +432,32 @@ func makeOnvifHandler(profiles []onvif.OnvifProfile, mainAPIPort int, deviceName
 			token := onvif.FindTagValue(b, "ConfigurationToken")
 			b = onvif.GetAudioEncoderConfigurationOptionsResponse(profiles, token)
 
+		// ----- audio OUTPUT (two-way audio): un-greys Nx's talk button -----
+		case onvif.MediaGetAudioOutputs:
+			b = onvif.GetAudioOutputsResponse(profiles)
+
+		case onvif.MediaGetAudioOutputConfigurations:
+			b = onvif.GetAudioOutputConfigurationsResponse(profiles)
+
+		case onvif.MediaGetCompatibleAudioOutputConfigurations:
+			b = onvif.GetCompatibleAudioOutputConfigurationsResponse(profiles)
+
+		case onvif.MediaGetAudioOutputConfiguration:
+			name := strings.TrimSuffix(onvif.FindTagValue(b, "ConfigurationToken"), "_aoutcfg")
+			b = onvif.GetAudioOutputConfigurationResponse(name)
+
+		case onvif.MediaGetAudioOutputConfigurationOptions:
+			b = onvif.GetAudioOutputConfigurationOptionsResponse(profiles)
+
+		case onvif.MediaGetAudioDecoderConfigurations:
+			b = onvif.GetAudioDecoderConfigurationsResponse(profiles)
+
+		case onvif.MediaGetCompatibleAudioDecoderConfigurations:
+			b = onvif.GetCompatibleAudioDecoderConfigurationsResponse(profiles)
+
+		case onvif.MediaGetAudioDecoderConfigurationOptions:
+			b = onvif.GetAudioDecoderConfigurationOptionsResponse()
+
 		case onvif.DeviceGetCapabilities:
 			// important for Hass: Media section
 			b = onvif.GetCapabilitiesResponse(r.Host, anyPTZ(profiles))
